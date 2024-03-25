@@ -42,13 +42,13 @@
 ## types of models
 
 - text classification
+    + multiple labels
+    + single labels
 - text summarization
 - question-answering
 - named entity recognition (place names)
 - text generation (geocoding)?
 
-- multiple labels
-- single labels
 
 ## application
 
@@ -75,12 +75,12 @@
     - **SLC/MLC**
 12. Number of fatalities in different categories
     - civilian, security, maoist, govt. official, other armed group, total
-    - **NIE/QA**
+    - **IE/QA**
 13. Property damage (yes/no) and extent of damage (high/med/low)
 14. Total number of arrests by category (total, commander, cadre, sympathizer, unknown)
-    - **NIE/QA**
+    - **IE/QA**
 15. Total number of surrenders by category (total, commander, cadre, sympathizer, unknown) 
-    - **NIE/QA**
+    - **IE/QA**
 
 ## specific models for fine-tuning single-label and multiple-label models
 
@@ -110,3 +110,24 @@
 - a second could look at using NIE and QA to do event counts
 - a third could be how do geo-location, e.g. identify the place names and coordinates based on the event description and then merge coordinates into a shapefile with constituency boundaries
 
+## plan of action
+
+1. single-label classification models 
+    + perpetrator (Maoist, security, unknown)
+    + success of action (yes/no)
+    + property damage (yes/no)
+2. mulitple-label classification models
+    + action type (armed assault, bombing, etc.)
+    + target type 
+    + civilian target type
+    + extent of property damage (high/medium/low)
+3. named entity recognition
+    + location of incident
+4. information extraction
+    + number of fatalities in different categories (civilian, security, maoist, govt. official, other armed group, total)
+    + number of arrests in different categories (total, commander, cadre, sympathizer, unknown)
+    + number of surrenders in different categories (total, commander, cadre, sympathizer, unknown) 
+    + number of hostages   
+5. geocoding locations? 
+    - connect to API to Google Maps API, Open Street maps or GeoNames look for coordinates of village
+    - use Geopandas and Shapely to merge constituency boundaries and village coordinates

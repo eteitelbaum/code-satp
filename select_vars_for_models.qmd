@@ -3,6 +3,26 @@ title: "Select Variables"
 format: html
 ---
 
+## Setup
+
+```{r}
+library(tidyverse)
+```
+
+
+## Perpetrator
+
+```{r}
+satp_data <- read.csv("data/satp_clean.csv")
+
+perpetrator <- satp_data |>
+  select(perpetrator, incident_summary)
+
+write_csv(perpetrator, "data/perpetrator.csv")
+
+glimpse(perpetrator)
+```
+
 ## Action Type
 
 ```{r}
