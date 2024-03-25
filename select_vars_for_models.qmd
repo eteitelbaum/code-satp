@@ -1,0 +1,17 @@
+---
+title: "Select Variables"
+format: html
+---
+
+## Action Type
+
+```{r}
+satp_data <- read.csv("data/satp_clean.csv")
+
+action_type <- satp_data|>
+  select(armed_assault:abduction, incident_summary)
+
+write_csv(action_type, "data/action_type.csv")
+
+glimpse(action_type)
+```

@@ -1,0 +1,325 @@
+---
+title: "Wrangle SATP"
+format: html
+---
+
+Load packages. 
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(janitor)
+```
+
+Read in data. 
+
+```{r}
+satp_raw_data <- read_excel("data/satp-dataset.xlsx", sheet = "analysis")
+```
+
+First, let's clean up these variable names.
+
+```{r}
+satp_clean_varnames <- satp_raw_data |>
+  clean_names() |>
+  rename(
+    incident_number = incidence_number,
+    longitude = longitude_dd,
+    latitude = latitude_dd,
+    perpetrator = type_of_perpetrator,
+    first_action = first_action_type,
+    second_action = second_action_type,
+    third_action = third_action_type,
+    action_successful = was_the_action_successful,
+    first_target = first_target_type,
+    second_target = second_target_type,
+    first_civilian_target = first_civilian_target_type,
+    second_civilian_target = second_civilian_target_type,
+    total_fatalities = total_number_of_fatalities,
+    govt_official_fatalities = government_official_fatalties,
+    other_armed_grp_fatalities = non_maoist_armed_group_fatalities,
+    total_injuries = total_number_of_injuries,
+    govt_official_injuries = government_official_injuries,
+    other_armed_grp_fatalities = non_maoist_armed_group_fatalities,
+    property_damage = was_there_any_reported_property_damage,
+    value_property_damage = if_yes_to_property_damage_total_value_or_nature_of_property_damage,
+    total_abducted = total_number_of_hostages_or_kidnappings, 
+    total_arrests = total_number_of_arrests,
+    total_surrenders = total_number_of_surrenders
+  )
+
+glimpse(satp_clean_varnames)
+```
+
+Looking at these variables, most seem worth keeping except for the name of the coder, the number of perpetrators (usually not reported) and the value of property damage (not reported in a unified way). I am going to drop the name of the coder and the number of perpetrators for now. The value of property damage I am going to keep because I wonder if an LLM could help come up with a better and more useful coding.
+
+```{r}
+satp_selected_vars <- satp_clean_varnames |>
+  select(!c(last_name, total_number_of_perpetrators))
+
+glimpse(satp_selected_vars)
+```
+
+Next, I would like to identify the duplicate incidents and see if there is anything we can do to merge the codings of them or at least think about how they should be handled. 
+
+```{r}
+satp_duplicates <- satp_selected_vars |>
+  get_dupes(incident_summary)
+
+#write_csv(satp_duplicates, "satp_duplicates.csv")
+```
+
+What I see when I inspect the duplicates are some duplicates due to the fact that a report covered connected incidents that occurred on the same day in multiple locations. These seem like legitimate cases where the incident report should be broken up and treated as multiple incidents. 
+
+In other cases, incident reports are duplicated because the coders saw more than one event occurring in the same incident. For example, there might have been an armed assault and seizure of weapons when police raided a Maoist hideout. These probably should have been coded as single incidents with multiple actions. 
+
+I think the plan here should be to separate these out and work on recoding them at the same time that I move forward on setting up the workflow for the LLM. Maybe I can talk to Shiva about getting some Indian students to work on recoding these incidents this summer.
+
+Let's filter out the observations with duplicates from the original data and go from there. 
+
+```{r}
+satp_no_dupes <- satp_selected_vars |>
+  filter(!incident_summary %in% satp_duplicates$incident_summary)
+
+glimpse(satp_no_dupes)
+```
+
+10,729 - 808 = 9921. That seems about right. 
+
+Curious to know how many actions were sucessful versus unsuccessful. 
+
+```{r}
+satp_no_dupes |>
+  count(action_successful, sort = TRUE)
+```
+
+Should I drop the unsuccessful actions? Might be interesting to see if the LLM can code for it. Let's keep them for now. 
+
+How about civilian target types? Are these worth keeping? 
+
+```{r}
+satp_no_dupes |>
+  count(first_civilian_target, sort = TRUE)
+```
+
+```{r}
+satp_no_dupes |>
+  count(second_civilian_target, sort = TRUE)
+```
+
+These data look OK although the categories seem to be a bit messed up, e.g. ("High Caste\\Landowner" or "Polic informer"). 
+
+What about property damage?
+
+```{r}
+satp_no_dupes |>
+  count(property_damage, sort = TRUE)
+```
+
+Actually there were substantial numbers of incidents with property damage so let's keep that. 
+
+For the `value_property_damage` variable, we should also keep that for now and try to recode it with a high, medium, low value and then have the LLM try to replicate it. 
+
+Out of curiousity, how many of each type do we have for the first, second and third action types? 
+
+```{r}
+satp_no_dupes |>
+  count(first_action, sort = TRUE)
+```
+
+```{r}
+satp_no_dupes |>
+  count(second_action, sort = TRUE)
+```
+
+```{r}
+satp_no_dupes |>
+  count(third_action, sort = TRUE)
+```
+
+## Data for Classification Models
+
+Let's recode the action type as separate variables. First, what kinds of actions do we have? 
+
+```{r}
+satp_no_dupes |>
+  select(first_action) |>
+  distinct()
+```
+
+Let's trim down the dataset.
+
+```{r}
+satp_trimmed <- satp_no_dupes |>
+  select(
+    incident_number:second_civilian_target, 
+    property_damage:value_property_damage, 
+    incident_summary
+    ) 
+
+glimpse(satp_trimmed)
+```
+
+Now let's recode the action_type variable.
+
+```{r}
+satp_recoded_action_types <-  satp_trimmed |>
+  rowwise() |>
+  mutate(
+    armed_assault = if_else('Armed Assault' %in% c(first_action, second_action, third_action), 1, 0),
+    arrest = if_else('Arrest' %in% c(first_action, second_action, third_action), 1, 0),
+    bombing = if_else('Bombing' %in% c(first_action, second_action, third_action), 1, 0),
+    infrastructure = if_else('Facility/Infrastructure Attack' %in% c(first_action, second_action, third_action), 1, 0),
+    surrender = if_else('Surrender' %in% c(first_action, second_action, third_action), 1, 0),
+    seizure = if_else('Seizure of Money, Weapons, Property etc' %in% c(first_action, second_action, third_action), 1, 0),
+    abduction = if_else('Hijacking/Kidnapping' %in% c(first_action, second_action, third_action), 1, 0)
+  ) |>
+  ungroup() |>
+  relocate(armed_assault:abduction, .after = third_action)
+
+glimpse(satp_recoded_action_types)
+```
+
+
+Next, we will recode the success variable as a binary variable. 
+
+
+```{r}
+satp_recoded_action_types |>
+  count(action_successful, sort = TRUE) 
+
+satp_recoded_success <- satp_recoded_action_types |>
+  mutate(
+    action_successful = case_when(
+      action_successful == "Yes" ~ 1,
+      action_successful == "No" ~ 0,
+      action_successful == "Unknown" ~ NA, 
+      TRUE ~ NA # Catch-all for any other unexpected values
+    )
+  )
+
+satp_recoded_success |>
+  count(action_successful, sort = TRUE)
+
+glimpse(satp_recoded_success)
+```
+
+Now let's recode the civilian target types. What kinds of target types do we have?
+
+```{r}
+satp_recoded_action_types |>
+  select(second_target) |>
+  distinct()
+```
+
+1. Civilians 
+2. Maoist
+3. Government Officials
+4. Security
+5. Private Property
+6. Mining Company
+7. NGOs
+8. Government Infrastructure, Government Property
+9. Non-maoist armed group, Non-Maoist Armed Group, Non-Maoist armed group
+10. No Target, Unknown, None
+
+```{r}
+satp_recoded_target_types <- satp_recoded_success |>
+  rowwise() |>
+  mutate(
+    civilians = if_else('Civilians' %in% c(first_target, second_target), 1, 0),
+    maoist = if_else('Maoist' %in% c(first_target, second_target), 1, 0),
+    government_officials = if_else('Government Officials' %in% c(first_target, second_target), 1, 0),
+    security = if_else('Security' %in% c(first_target, second_target), 1, 0),
+    private_property = if_else('Private Property' %in% c(first_target, second_target), 1, 0),
+    mining_company = if_else('Mining Company' %in% c(first_target, second_target), 1, 0),
+    ngos = if_else('NGOs' %in% c(first_target, second_target), 1, 0),
+    government_infrastructure = if_else(
+      str_detect(first_target, "Government Infrastructure|Government Property") | 
+      str_detect(second_target, "Government Infrastructure|Government Property"), 
+      1, 0),
+    non_maoist_armed_group = if_else(
+      str_detect(first_target, regex("Non-Maoist armed group", ignore_case = TRUE)) |
+      str_detect(second_target, regex("Non-Maoist armed group", ignore_case = TRUE)), 
+      1, 0),
+    no_target = if_else(str_detect(first_target, "No Target|Unknown|None"), 1, 0)
+    ) |>
+  ungroup() |>
+  relocate(civilians:no_target, .after = second_target)
+
+glimpse(satp_recoded_target_types)
+```
+
+Let's recode the civilian target types. What kinds of target types do we have?
+
+```{r}
+satp_recoded_target_types |>
+  select(first_civilian_target) |>
+  distinct()
+```
+
+1. Other Civilian, Other
+2. Former Maoist
+3. High Caste/Landowner, High Caste\\Landowner, High caste/Landowner
+4. Police Informer, Polic Informer
+5. Businessman
+6. Aspiring Politician, Aspiring Politicians
+7. Other Elite
+
+```{r}
+satp_recoded_civilian_target_types <- satp_recoded_target_types |>
+  rowwise() |>
+  mutate(
+    former_maoist = if_else('Former Maoist' %in% c(first_civilian_target, second_civilian_target), 1, 0),
+    high_caste_landowner = if_else(
+      !is.na(first_civilian_target) & str_detect(first_civilian_target, regex("High Caste/Landowner|High Caste\\Landowner", ignore_case = TRUE)) |
+      !is.na(second_civilian_target) & str_detect(second_civilian_target, regex("High Caste/Landowner|High Caste\\Landowner", ignore_case = TRUE)), 
+      1, 0),
+    police_informer = if_else(
+      !is.na(first_civilian_target) & str_detect(first_civilian_target, "Police Informer|Polic Informer") |
+      !is.na(second_civilian_target) & str_detect(second_civilian_target, "Police Informer|Polic Informer"), 
+      1, 0),
+    businessman = if_else('Businessman' %in% c(first_civilian_target, second_civilian_target), 1, 0),
+    aspiring_politician = if_else(
+      !is.na(first_civilian_target) & str_detect(first_civilian_target, "Aspiring Politician|Aspiring Politicians") |
+      !is.na(second_civilian_target) & str_detect(second_civilian_target, "Aspiring Politician|Aspiring Politicians"), 
+      1, 0),
+    other_elite = if_else('Other Elite' %in% c(first_civilian_target, second_civilian_target), 1, 0), 
+    other_civilian = if_else(
+      !is.na(first_civilian_target) & str_detect(first_civilian_target, "Other Civilian|Other") | 
+      !is.na(second_civilian_target) & str_detect(second_target, "Other Civilian|Other"), 
+      1, 0)
+  ) |>
+  ungroup() |>
+  relocate(former_maoist:other_civilian, .after = second_civilian_target)
+
+glimpse(satp_recoded_civilian_target_types)
+```
+Finally, let's recode property damage as a binary variable. 
+
+```{r}
+satp_recoded_civilian_target_types |>
+  count(property_damage, sort = TRUE)
+
+satp_recoded_property_damage <- satp_recoded_civilian_target_types |>
+  mutate(property_damage = if_else(property_damage == "Yes", 1, 0))
+
+satp_recoded_property_damage |>
+  count(property_damage, sort = TRUE)
+```
+We need to get rid of the whitespace and return characters at the beginning of some of the cells for our character variables. 
+
+```{r}
+satp_removed_whitespace <- satp_recoded_property_damage |>
+  mutate(across(where(is.character), ~str_trim(.)))
+```
+
+Now let's have a final look at the cleaned data and write it to a CSV gile
+
+```{r}
+satp_final <- satp_removed_whitespace 
+
+write_csv(satp_final, "data/satp_clean.csv")
+
+glimpse(satp_final)
+```
