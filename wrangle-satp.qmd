@@ -147,23 +147,23 @@ satp_no_dupes |>
   distinct()
 ```
 
-Let's trim down the dataset.
+<!-- Let's trim down the dataset. -->
 
-```{r}
-satp_trimmed <- satp_no_dupes |>
-  select(
-    incident_number:second_civilian_target, 
-    property_damage:value_property_damage, 
-    incident_summary
-    ) 
+<!-- ```{r} -->
+<!-- satp_trimmed <- satp_no_dupes |> -->
+<!--   select( -->
+<!--     incident_number:second_civilian_target,  -->
+<!--     property_damage:value_property_damage,  -->
+<!--     incident_summary -->
+<!--     )  -->
 
-glimpse(satp_trimmed)
-```
+<!-- glimpse(satp_trimmed) -->
+<!-- ``` -->
 
 Now let's recode the action_type variable.
 
 ```{r}
-satp_recoded_action_types <-  satp_trimmed |>
+satp_recoded_action_types <-  satp_no_dupes |>
   rowwise() |>
   mutate(
     armed_assault = if_else('Armed Assault' %in% c(first_action, second_action, third_action), 1, 0),
@@ -295,6 +295,7 @@ satp_recoded_civilian_target_types <- satp_recoded_target_types |>
 
 glimpse(satp_recoded_civilian_target_types)
 ```
+
 Finally, let's recode property damage as a binary variable. 
 
 ```{r}
@@ -307,6 +308,7 @@ satp_recoded_property_damage <- satp_recoded_civilian_target_types |>
 satp_recoded_property_damage |>
   count(property_damage, sort = TRUE)
 ```
+
 We need to get rid of the whitespace and return characters at the beginning of some of the cells for our character variables. 
 
 ```{r}
