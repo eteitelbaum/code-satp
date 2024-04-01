@@ -1,8 +1,22 @@
+## ConfliBERT
+
+ConfliBERT is a version of BERT pretrained on a big corpus of conflict-related documents:
+
+https://huggingface.co/eventdata-utd
+
+The UTD repo includes the base ConfliBERT model that they recommend, one that is fine-tuned for binary classification of events as conflict-related or not, and a third model for named entity recogntion.
+
 ## Perpetrator
 
+I worked on code to loop through the various types of models we may want to use. We get really low loss and high accuracy across the models, but highest is ConfliBERT followed by DistilBERT followed by base BERT. I think the differences between ConfliBERT and DistilBERT are probably not enough to justify doubling the training time, though. 
 
 ## Action Type
 
+## Location
+
+We should try mordecai3 to see how it works on Indian place names: 
+
+https://github.com/ahalterman/mordecai3
 
 ## Deaths
 

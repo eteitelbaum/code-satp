@@ -6,6 +6,14 @@
     - !last_name
 - remove or merge duplicate event descriptions
 
+## scraping
+
+The ConfliBERT team did some work on scraping SATP. See their repo here: 
+
+https://github.com/snowood1/SATP/tree/master
+
+It has good code for automating the downloading of event descriptions
+
 ## types of variables
 
 - incident identifier
