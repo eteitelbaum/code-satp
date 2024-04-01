@@ -1,0 +1,19 @@
+                                      eval_loss  eval_accuracy   eval_f1  \
+bert-base-uncased                      0.209818       0.955623  0.955734   
+distilbert-base-uncased                0.206556       0.956127  0.955872   
+eventdata-utd/ConfliBERT-scr-uncased   0.192650       0.959153  0.959070   
+
+                                      eval_precision  eval_recall  \
+bert-base-uncased                           0.955914     0.955623   
+distilbert-base-uncased                     0.955712     0.956127   
+eventdata-utd/ConfliBERT-scr-uncased        0.959115     0.959153   
+
+                                      eval_runtime  eval_samples_per_second  \
+bert-base-uncased                          75.1027                   26.404   
+distilbert-base-uncased                    44.6793                   44.383   
+eventdata-utd/ConfliBERT-scr-uncased       76.4022                   25.955   
+
+                                      eval_steps_per_second  epoch  
+bert-base-uncased                                     3.302    3.0  
+distilbert-base-uncased                               5.551    3.0  
+eventdata-utd/ConfliBERT-scr-uncased                  3.246    3.0  
