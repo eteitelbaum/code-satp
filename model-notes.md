@@ -4,7 +4,7 @@ ConfliBERT is a version of BERT pretrained on a big corpus of conflict-related d
 
 https://huggingface.co/eventdata-utd
 
-The UTD repo includes the base ConfliBERT model that they recommend, one that is fine-tuned for binary classification of events as conflict-related or not, and a third model for named entity recogntion.
+The UTD repo includes the base ConfliBERT model that they recommend, one that is fine-tuned for binary classification of events as conflict-related or not, and a third model for named entity recognition.
 
 ## Perpetrator
 
@@ -17,6 +17,8 @@ I worked on code to loop through the various types of models we may want to use.
 We should try mordecai3 to see how it works on Indian place names: 
 
 https://github.com/ahalterman/mordecai3
+
+Have also heard that GLiNER is a state of the art named entity recognition model.
 
 ## Deaths
 
@@ -35,16 +37,16 @@ Throughout this process, I utilized various tools and techniques, including crea
 ### Other potential options
 
 - Question and answer model, prompting whether there were any deaths and how many people died in each category
-- Simply classify whether there was a death and who was killed using a multiple-classification model
+- Simply classify whether there was a death with a classification model and/or and who was killed using a multiple-classification model
 - I am thinking the best option might be to do a classification model first for whether there were deaths and who the victims were, and in the second stage try to do the counts of only the cases with the deaths. Here are some potential options for count extraction models:
     - regression model (Poisson perhaps, since there won't be zeros maybe it would work)
     - BertForQuestionAnswering (potentially very labor-intensive)
-    - named entity recognition could extract the counts as entities (need to explore more)
+    - **named entity recognition could extract the counts as entities (need to explore more, perhaps GLiNER would be good for this)**
 - Here are some benefits of this approach: 
-    = the initial classification model serves as a filter, reducing the possibility of the extraction model being applied to irrelevant text
+    - the initial classification model serves as a filter, reducing the possibility of the extraction model being applied to irrelevant text
     - since the extraction model only processes texts identified to contain relevant information, the data it trains on is more consistent, potentially making it easier to learn the task
     - the two-step approach allows us to manage and improve each step independently, which can be helpful for debugging and optimizing the system
-    - even if we don't get results for the text extraction, we still have the codings for whether deaths occured
+    - even if we don't get results for the text extraction, we still have the codings for whether deaths occurred
 
 ## ConfliBERT paper models
 
@@ -72,8 +74,7 @@ Another possibility is that they trained across different types of conflicts, co
 
 One idea for a paper could be to walk the reader through the steps to improve the codings performed by the model with a limited dataset using augmented data. We could fine tune the model on the full training set and then see what happens when we drop down to a smaller number of cases (say 100 or 200). Then we could talk about strategies for getting the accuracy up to the level of what we see on the full training set. The same principles should apply to improving the codings for the full training set, so I suppose we could try doing that too. But I think it would be more interesting to look at it from the standpoint of "how low can you go" in terms of examples to get 90% accuracy or above. 
 
-Here are some libraries ChatGPT recommended for augmented/synthetic data; 
-
+Here are some libraries ChatGPT recommended for augmented/synthetic data: 
 
 1. **NLPAug:** A Python library that provides support for textual augmentations including synonym replacement, back translation, and insertion of contextual word embeddings. It can augment text at the word, character, or sentence level.
 
@@ -104,9 +105,15 @@ When using data augmentation techniques, especially in the context of improving 
 
 In practice, it might be useful to experiment with both approaches to see which one yields better results for your specific task and dataset.
 
-## K-fold cross-validation
+### K-fold cross-validation
 
-Could combine k-fold cross-validation with data augmentation. Start with augmentation then apply k-fold validation.
+Could combine k-fold cross-validation with data augmentation. Start with augmentation then apply k-fold validation. Might give more robust results. 
 
+### Flagging cases with a lower certainty
+
+- In addition to just providing the classification, also output the predicted probability
+- Flag cases where probability is below a certain threshold
+- A well-calibrated model is one where the predicted probabilities accurately reflects the true probabilities. So among cases with a predicted success probability of 80%, approximately 80% should be successes
+- Thus, if you have a well-calibrated model, you could flag cases that fall below a higher confidence threshold for review (say cases between .5 and .7). You could then do expert analysis on these cases or apply a different model specification for borderline cases or defaulting to a risk-averse decision
   
 

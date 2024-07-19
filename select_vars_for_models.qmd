@@ -43,7 +43,8 @@ glimpse(action_type)
 
 ```{r}
 deaths <- satp_data |>
-  select(total_fatalities:other_armed_grp_fatalities, incident_summary)
+  select(total_fatalities:other_armed_grp_fatalities, incident_summary) |>
+  drop_na()
 
 write_csv(deaths, "data/deaths.csv")
 

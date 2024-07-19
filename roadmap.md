@@ -1,3 +1,12 @@
+## the pipline
+
+1. scrape SATP, store in DB
+2. code location, longitude and latitude 
+3. code perpetrator and event type
+4. code casualties
+5. code hostages and events/surrenders
+6. analyze and visualize
+
 ## wrangling steps
 
 - read into R using readxl (analysis)
