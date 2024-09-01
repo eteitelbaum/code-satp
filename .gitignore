@@ -2,4 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
-results
+results.DS_Store
+satp/
+.DS_Store
+~.xlsx

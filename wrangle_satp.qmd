@@ -86,7 +86,7 @@ glimpse(satp_no_dupes)
 
 10,729 - 808 = 9921. That seems about right. 
 
-Curious to know how many actions were sucessful versus unsuccessful. 
+Curious to know how many actions were successful versus unsuccessful. 
 
 ```{r}
 satp_no_dupes |>

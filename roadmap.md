@@ -1,4 +1,4 @@
-## the pipline
+## the pipeline
 
 1. scrape SATP, store in DB
 2. code location, longitude and latitude 

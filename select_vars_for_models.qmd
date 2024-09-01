@@ -13,6 +13,8 @@ satp_data <- read.csv("data/satp_clean.csv")
 
 ## Perpetrator
 
+Here we look at the perpetrator of the violence. We will drop the categories of "Civilians" and "Non-Maoist armed group" as they have very few observations. Then we will save the data to a csv file along with the incident summary.
+
 ```{r}
 # count number of observations in each perpetrator cateogry
 satp_data |>
@@ -30,6 +32,8 @@ glimpse(perpetrator)
 
 ## Action Type
 
+Now we select all of the action types and save the data to a csv file along with the incident summary.
+
 ```{r}
 action_type <- satp_data|>
   select(armed_assault:abduction, incident_summary)
@@ -40,6 +44,8 @@ glimpse(action_type)
 ```
 
 ## Deaths
+
+Finally, we select the variables related to fatalities and save the data to a csv file along with the incident summary.
 
 ```{r}
 deaths <- satp_data |>
