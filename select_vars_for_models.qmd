@@ -8,8 +8,9 @@ format: html
 ```{r}
 library(tidyverse)
 satp_data <- read.csv("data/satp_clean.csv")
-```
 
+glimpse(satp_data)
+```
 
 ## Perpetrator
 
@@ -43,9 +44,22 @@ write_csv(action_type, "data/action_type.csv")
 glimpse(action_type)
 ```
 
+## Target Type
+
+Select the variables related to target type and save the data to a CSV file along with the incident summary
+
+```{r}
+target_type <- satp_data|>
+  select(first_target:other_civilian, incident_summary)
+
+write_csv(target_type, "data/target_type.csv")
+
+glimpse(target_type)
+```
+
 ## Deaths
 
-Finally, we select the variables related to fatalities and save the data to a csv file along with the incident summary.
+Select the variables related to fatalities and save the data to a csv file along with the incident summary.
 
 ```{r}
 deaths <- satp_data |>
@@ -57,5 +71,93 @@ write_csv(deaths, "data/deaths.csv")
 glimpse(deaths)
 ```
 
+## Injuries
+
+Select the variables related to injuries and save the data to a csv file along with the incident summary.
+
+```{r}
+injuries <- satp_data |>
+  select(total_injuries:non_maoist_armed_group_injuries, incident_summary) |>
+  drop_na()
+
+write_csv(injuries, "data/injuries.csv")
+
+glimpse(injuries)
+```
+## Property Damage
+
+Just two variables here: whether there was property damage and value of property damage (if reported). I doubt the value of property damage will be useful in a model, but I'll include it for now. Save the data to a csv file along with the incident summary.
+
+```{r}
+property_damage <- satp_data |>
+  select(property_damage, value_property_damage, incident_summary) 
+
+write_csv(property_damage, "data/property_damage.csv")
+
+glimpse(property_damage)
+```
+## Abductions
+
+For kidnappings, just one variable: number of people abducted. Save the data to a csv file along with the incident summary.
+
+```{r}
+abductions <- satp_data |>
+  select(total_abducted, incident_summary) 
+
+write_csv(abductions, "data/abductions.csv")
+
+glimpse(abductions)
+```
+
+## Arrests
+
+Multiple arrest counts based on who was arrested. 
+
+```{r}
+arrests <- satp_data |>
+  select(total_arrests:unknown_arrests, incident_summary)
+
+write_csv(arrests, "data/arrests.csv")
+
+glimpse(arrests)
+```
+
+## Surrenders
+
+Total surrenders to unknown surrenders. Save as CSV.
+
+```{r}
+surrenders <- satp_data |>
+  select(total_surrenders:unknown_surrenders, incident_summary)
+
+write_csv(surrenders, "data/surrenders.csv")
+
+glimpse(surrenders)
+```
+
+## Identifying Information
+
+Save year, date and incident number in a separate file. 
+
+```{r}
+identifying_info <- satp_data |>
+  select(year, date, incident_number)
+
+write_csv(identifying_info, "data/identifying_info.csv")
+
+glimpse(identifying_info)
+```
+## Location Information
+
+Save location information, e.g. state - latitude. 
+
+```{r}
+location_info <- satp_data |>
+  select(state:latitude)
+
+write_csv(location_info, "data/location_info.csv")
+
+glimpse(location_info)
+```
 
 
