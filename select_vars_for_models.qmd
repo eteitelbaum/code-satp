@@ -141,7 +141,7 @@ Save year, date and incident number in a separate file.
 
 ```{r}
 identifying_info <- satp_data |>
-  select(year, date, incident_number)
+  select(year, date, incident_number, incident_summary)
 
 write_csv(identifying_info, "data/identifying_info.csv")
 
@@ -153,7 +153,7 @@ Save location information, e.g. state - latitude.
 
 ```{r}
 location_info <- satp_data |>
-  select(state:latitude)
+  select(state:latitude, incident_summary)
 
 write_csv(location_info, "data/location_info.csv")
 
