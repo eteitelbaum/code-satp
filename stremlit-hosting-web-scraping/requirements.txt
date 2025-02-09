@@ -1,0 +1,11 @@
+streamlit
+gspread
+pandas
+google-auth
+google-auth-oauthlib
+matplotlib
+requests
+beautifulsoup4
+plotly
+seaborn
+geopandas
