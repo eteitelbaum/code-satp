@@ -12,4 +12,4 @@ pinned: false
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
 
 
-Model Inference on HUggingFace Spaces : https://huggingface.co/spaces/Mohiddin77/SATP-hosting-demo
+Model Inference on HuggingFace Spaces : https://huggingface.co/spaces/Mohiddin77/SATP-hosting-demo
