@@ -1,0 +1,13 @@
+streamlit
+gspread
+pandas
+numpy
+google-auth
+google-auth-oauthlib
+matplotlib
+requests
+beautifulsoup4
+transformers
+sentencepiece
+torch 
+tqdm
