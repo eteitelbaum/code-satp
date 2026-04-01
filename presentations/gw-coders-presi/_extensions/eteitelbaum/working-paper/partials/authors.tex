@@ -1,0 +1,16 @@
+$it.name.literal$$if(it.attributes.corresponding)$\thanks{Corresponding author.}$endif$
+$if(it.orcid)$
+~\orcidlink{$it.orcid$}
+$endif$
+$if(it.title)$
+\\$it.title$
+$endif$
+$for(it.affiliations)$
+\\$it.name$
+$if(it.department)$
+\\$it.department$
+$endif$
+$endfor$
+$if(it.email)$
+\\\href{mailto:$it.email$}{$it.email$}
+$endif$ 
