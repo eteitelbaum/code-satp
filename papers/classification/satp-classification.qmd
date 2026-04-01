@@ -3,17 +3,17 @@ title: |
   The Limits and Promise of Automated Event Coding
 subtitle: |
   Evidence from the South Asia Terrorism Portal
-short-title: "Comparing Encoder-Based Models"
+short-title: "Limits and Promise"
 published: "Prepared for the GWU Comparative Politics Workshop."  
 date: January 31, 2026
 code-repo: "Access the code, data, and analysis at <https://github.com/eteitelbaum/code-satp.git>"
 author: 
   - name: Emmanuel Teitelbaum
     email: ejt@gwu.edu
-    orcid: 0000-0001-7089-0588m
+    orcid: 0000-0001-7089-0588
     title: Associate Professor 
     affiliations:
-      - id: gwu
+      - id: gwu-ps
         name: George Washington University
         department: Department of Political Science
     attributes: 
@@ -21,13 +21,13 @@ author:
   - name: Mohiddin Bacha Shaik
     email: iammohiddins@gmail.com
     affiliations:
-      - id: gwu
+      - id: gwu-ds
         name: George Washington University
         department: Data Science Program
   - name: Shiva Chakrabarty Sharma
     email: shivacsharma@gmail.com
     affiliations:
-      - id: gwu
+      - id: gwu-tspp
         name: George Washington University
         department: Trachtenburg School of Public Policy
 abstract: | 

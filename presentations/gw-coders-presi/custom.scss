@@ -1,0 +1,36 @@
+/*-- scss:defaults --*/
+
+$body-bg: #00264A;
+$body-color: #fff;
+$link-color: #42affa;
+
+/*-- scss:rules --*/
+
+.reveal .slide blockquote {
+  border-left: 3px solid $text-muted;
+  padding-left: 0.5em;
+}
+
+.reveal .slide-logo {
+    height: 100px !important;
+    width: 100px !important;
+    max-width: unset !important;
+    max-height: unset !important;
+  }
+  
+.reveal .footer {
+    color: #42affa !important;
+}
+
+b, strong {
+    color: #42affa;
+}
+
+.reveal h1, .reveal h2, .reveal .slide-title {
+  color: #fff !important; /* Force white color */
+}
+
+// Add space after slide titles for h2 
+.reveal h2 {
+  margin-bottom: 1em; // Adjust as needed for spacing
+}

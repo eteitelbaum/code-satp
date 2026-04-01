@@ -3,8 +3,23 @@ title: "Comparing Encoder-Based Models for Event Coding"
 subtitle: "Evidence from the South Asia Terrorism Portal"
 author:
   - name: Emmanuel Teitelbaum
+    email: ejt@gwu.edu
+    affiliations:
+      - id: gwu-ps
+        name: George Washington University
+        department: Department of Political Science
   - name: Mohiddin Bacha Shaik
+    email: iammohiddins@gmail.com
+    affiliations:
+      - id: gwu-ds
+        name: George Washington University
+        department: Data Science Program
   - name: Shiva Chakrabarty Sharma
+    email: shivacsharma@gmail.com
+    affiliations:
+      - id: gwu-tspp
+        name: George Washington University
+        department: Trachtenburg School of Public Policy
 date: today
 date-format: long
 footer: "[View Our Code and Data](https://github.com/eteitelbaum/code-satp)"
@@ -477,6 +492,5 @@ We look forward to your feedback...
 :::
 
 :::
-
 
 

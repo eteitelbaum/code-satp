@@ -49,7 +49,6 @@ def make_input(text: str) -> str:
     """Create input prompt for the model."""
     return f"{INSTR}\n\nText: {text}\nAnswer:"
 
-
 def make_input_t5(text: str) -> str:
     """
     Create a T5-friendly prompt (simpler seq2seq style).
@@ -78,7 +77,6 @@ def make_input_t5_fewshot(text: str, shots: Optional[list[tuple[str, str]]] = No
     for s, a in shots:
         examples.append(f"Text: {s}\nAnswer: {a}")
     return f"{header}\n\n" + "\n\n".join(examples) + f"\n\nText: {text}\nAnswer:"
-
 
 def parse_fatalities(s: str) -> int:
     """
