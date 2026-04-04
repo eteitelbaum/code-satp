@@ -17,6 +17,7 @@ from .training_utils import (
     create_qa_training_args,
     cleanup_model,
     compute_bin_weights,
+    WeightedDataCollatorForSeq2Seq,
     WeightedSeq2SeqTrainer,
     LossWeightedSeq2SeqTrainer,
 )
@@ -56,6 +57,7 @@ __all__ = [
     'create_qa_training_args',
     'cleanup_model',
     'compute_bin_weights',
+    'WeightedDataCollatorForSeq2Seq',
     'WeightedSeq2SeqTrainer',
     'LossWeightedSeq2SeqTrainer',
     'make_input',

@@ -4,7 +4,7 @@ import gc
 import math
 import torch
 from torch.utils.data import WeightedRandomSampler
-from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments, TrainingArguments
+from transformers import DataCollatorForSeq2Seq, Seq2SeqTrainer, Seq2SeqTrainingArguments, TrainingArguments
 
 
 def create_seq2seq_training_args(
@@ -158,6 +158,27 @@ def create_qa_training_args(
     )
 
 
+class WeightedDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
+    """
+    DataCollatorForSeq2Seq that preserves a `sample_weight` column.
+
+    The standard DataCollatorForSeq2Seq silently drops non-standard columns.
+    This subclass extracts `sample_weight` from each feature before passing
+    the rest to the parent collator, then re-attaches it as a float32 tensor.
+    Use this collator with LossWeightedSeq2SeqTrainer.
+    """
+
+    def __call__(self, features, return_tensors=None):
+        weights = [f.pop("sample_weight", None) for f in features]
+        batch = super().__call__(features, return_tensors=return_tensors)
+        if any(w is not None for w in weights):
+            batch["sample_weight"] = torch.tensor(
+                [w if w is not None else 1.0 for w in weights],
+                dtype=torch.float32,
+            )
+        return batch
+
+
 def compute_bin_weights(labels, cap_ratio=4.0):
     """
     Compute per-example sampling/loss weights inversely proportional to bin frequency.
@@ -289,17 +310,15 @@ class LossWeightedSeq2SeqTrainer(Seq2SeqTrainer):
 
         logits = outputs.logits  # (batch, seq_len, vocab)
 
-        # Compute per-example mean token loss manually
-        shift_logits = logits[:, :-1, :].contiguous()
-        shift_labels = labels[:, 1:].contiguous()
-
+        # T5 is a seq2seq encoder-decoder: logits[i] already corresponds to
+        # labels[i] — no causal-LM-style shift needed (unlike GPT).
         loss_fct = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
         token_losses = loss_fct(
-            shift_logits.view(-1, shift_logits.size(-1)),
-            shift_labels.view(-1),
-        ).view(shift_labels.size())
+            logits.view(-1, logits.size(-1)),
+            labels.view(-1),
+        ).view(labels.size())
 
-        mask = (shift_labels != -100).float()
+        mask = (labels != -100).float()
         per_example_loss = (token_losses * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
 
         loss = (per_example_loss * w.float().to(per_example_loss.device)).mean()
