@@ -63,21 +63,20 @@ def tokenize_seq2seq(examples, tokenizer, max_input_length=512, max_target_lengt
         Tokenized examples with input_ids, attention_mask, and labels
     """
     model_inputs = tokenizer(
-        examples['input'], 
-        max_length=max_input_length, 
-        truncation=True, 
+        examples['input'],
+        max_length=max_input_length,
+        truncation=True,
         padding='max_length'
     )
-    
-    # Setup targets with proper target encoding pathway
-    with tokenizer.as_target_tokenizer():
-        target_encodings = tokenizer(
-        examples['target'], 
-        max_length=max_target_length, 
-        truncation=True, 
+
+    # text_target is the modern replacement for the deprecated as_target_tokenizer()
+    target_encodings = tokenizer(
+        text_target=examples['target'],
+        max_length=max_target_length,
+        truncation=True,
         padding='max_length'
     )
-    
+
     # Replace padding token id's in the labels with -100 so they are ignored by the loss
     labels = [[(l if l != tokenizer.pad_token_id else -100) for l in label] for label in target_encodings['input_ids']]
     model_inputs['labels'] = labels
