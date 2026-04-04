@@ -78,17 +78,28 @@ def make_input_t5_fewshot(text: str, shots: Optional[list[tuple[str, str]]] = No
         examples.append(f"Text: {s}\nAnswer: {a}")
     return f"{header}\n\n" + "\n\n".join(examples) + f"\n\nText: {text}\nAnswer:"
 
-def parse_fatalities(s: str) -> int:
+def parse_fatalities(s: str, return_metadata: bool = False):
     """
     Parse fatalities count from model output.
-    
+
     Args:
         s: Model output string (may contain JSON or plain number)
-        
+        return_metadata: If True, return a dict with prediction and parse diagnostics
+            instead of just the int. Existing callers passing return_metadata=False
+            (the default) are unaffected.
+
     Returns:
-        int: Extracted fatalities count (0 if not found)
+        int: Extracted fatalities count (0 if not found), when return_metadata=False.
+        dict: When return_metadata=True:
+            - prediction (int): extracted count (0 on failure)
+            - parse_success (bool): whether a count was confidently extracted
+            - parse_method (str): 'json_key', 'digit_regex', or 'failure'
+            - defaulted_to_zero_due_to_parse_failure (bool)
     """
     if not s:
+        if return_metadata:
+            return {"prediction": 0, "parse_success": False,
+                    "parse_method": "failure", "defaulted_to_zero_due_to_parse_failure": True}
         return 0
     # Normalize whitespace and strip common code fences/backticks
     s = str(s).strip()
@@ -103,21 +114,30 @@ def parse_fatalities(s: str) -> int:
     # Remove stray single backticks
     if "`" in s:
         s = s.replace("`", "")
-    
+
     # Try to extract from JSON format first
     m = re.search(r'"fatalities"\s*:\s*(-?\d+)', s or "")
     if m:
-        return max(0, int(m.group(1)))
-    
+        result = max(0, int(m.group(1)))
+        if return_metadata:
+            return {"prediction": result, "parse_success": True,
+                    "parse_method": "json_key", "defaulted_to_zero_due_to_parse_failure": False}
+        return result
+
     # Otherwise scan for integers and prefer small, plausible casualty counts
     # This avoids accidentally capturing unrelated large numbers (years, ids, etc.).
     nums = [int(x) for x in re.findall(r'\d+', s or "")]
     if not nums:
+        if return_metadata:
+            return {"prediction": 0, "parse_success": False,
+                    "parse_method": "failure", "defaulted_to_zero_due_to_parse_failure": True}
         return 0
     plausible = [n for n in nums if 0 <= n <= 200]
-    if plausible:
-        return plausible[0]
-    return max(0, nums[0])
+    result = plausible[0] if plausible else max(0, nums[0])
+    if return_metadata:
+        return {"prediction": result, "parse_success": True,
+                "parse_method": "digit_regex", "defaulted_to_zero_due_to_parse_failure": False}
+    return result
 
 
 def time_inference_call(inference_func: Callable, *args, **kwargs) -> Tuple[Any, Dict[str, float]]:
