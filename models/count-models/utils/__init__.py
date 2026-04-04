@@ -15,7 +15,10 @@ from .training_utils import (
     create_seq2seq_training_args,
     create_regression_training_args,
     create_qa_training_args,
-    cleanup_model
+    cleanup_model,
+    compute_bin_weights,
+    WeightedSeq2SeqTrainer,
+    LossWeightedSeq2SeqTrainer,
 )
 from .llm_utils import (
     make_input,
@@ -52,6 +55,9 @@ __all__ = [
     'create_regression_training_args',
     'create_qa_training_args',
     'cleanup_model',
+    'compute_bin_weights',
+    'WeightedSeq2SeqTrainer',
+    'LossWeightedSeq2SeqTrainer',
     'make_input',
     'make_input_l1',
     'make_input_l2',
