@@ -19,6 +19,10 @@ from .training_utils import (
 )
 from .llm_utils import (
     make_input,
+    make_input_l1,
+    make_input_l2,
+    make_input_l3,
+    make_input_l4,
     parse_fatalities,
     time_inference_call,
     load_causal,
@@ -49,6 +53,10 @@ __all__ = [
     'create_qa_training_args',
     'cleanup_model',
     'make_input',
+    'make_input_l1',
+    'make_input_l2',
+    'make_input_l3',
+    'make_input_l4',
     'parse_fatalities',
     'time_inference_call',
     'load_causal',

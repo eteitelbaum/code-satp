@@ -27,10 +27,32 @@ DEVICE = 0 if torch.cuda.is_available() else -1
 DTYPE = torch.float16
 USE_4BIT = False
 
-# Instruction template for prompts
+# ── Prompt variants for rare-bin intervention study ───────────────────────────
+#
+# L0 (baseline): zero-shot, no attacker-death guidance (original experiments)
+# L1: adds one sentence clarifying that claimed attacker deaths should be counted
+# L2: bin-balanced few-shot (one clear example per bin: 0, 1, 2, 3-5, 6+)
+# L3: hard-case few-shot targeting known failure modes (multi-group arithmetic,
+#     succumbed to injuries, claimed/unrecovered attacker deaths)
+#
+# All few-shot examples are drawn from the validation set to avoid test leakage.
+# The run_causal_batch / run_openai_batch functions accept an optional prompt_fn
+# argument (default: make_input / L0) so variants can be swapped without
+# touching calling code.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# L0 — baseline instruction (unchanged from original experiments)
 INSTR = (
     "How many people were killed? Answer with only a number. "
     "Return JSON exactly as: {\"fatalities\": <integer>}. If no fatalities are mentioned, use 0."
+)
+
+# L1 — attacker deaths clarification (same base instruction + one sentence)
+INSTR_L1 = (
+    "How many people were killed? Answer with only a number. "
+    "Return JSON exactly as: {\"fatalities\": <integer>}. If no fatalities are mentioned, use 0. "
+    "Count all reported deaths on all sides, including claimed attacker casualties "
+    "even if bodies were not recovered."
 )
 
 # Optional toggle to enable few-shot prompting for T5 models
@@ -39,15 +61,187 @@ USE_T5_FEWSHOT = False
 def set_t5_fewshot(enabled: bool) -> None:
     """
     Enable or disable few-shot prompting for T5 models at runtime.
-    
+
     This allows notebooks to control the prompting style without editing this file.
     """
     global USE_T5_FEWSHOT
     USE_T5_FEWSHOT = bool(enabled)
 
+
 def make_input(text: str) -> str:
-    """Create input prompt for the model."""
+    """L0 (baseline): zero-shot prompt, no attacker-death guidance."""
     return f"{INSTR}\n\nText: {text}\nAnswer:"
+
+
+def make_input_l1(text: str) -> str:
+    """L1: zero-shot with attacker deaths clarification."""
+    return f"{INSTR_L1}\n\nText: {text}\nAnswer:"
+
+
+def make_input_l2(text: str) -> str:
+    """
+    L2: bin-balanced few-shot prompt.
+
+    One example per bin (0, 1, 2, 3-5, 6+) drawn from the training set
+    (incident IDs: 306301001, 801090901, 204120501, 207230601, 804291301).
+    Examples are short, unambiguous cases covering the full count range and
+    demonstrating the killed/injured distinction.
+    """
+    examples = [
+        # Bin 0 — injuries only, no deaths (training ID 306301001)
+        (
+            "Seven CRPF personnel were injured in a landmine blast in the Bijapur District.",
+            '{"fatalities": 0}'
+        ),
+        # Bin 1 — single confirmed death (training ID 801090901)
+        (
+            "CPI-Maoists killed one villager in Garwah district",
+            '{"fatalities": 1}'
+        ),
+        # Bin 2 — two deaths (training ID 204120501)
+        (
+            "CPI-Maoist cadres kill two farmers in the Rohtas District.",
+            '{"fatalities": 2}'
+        ),
+        # Bin 3-5 — multiple deaths; injured are not counted (training ID 207230601)
+        (
+            "Three persons were killed and five others injured by the CPI-Maoist "
+            "at Khaira village in Lakhisarai District.",
+            '{"fatalities": 3}'
+        ),
+        # Bin 6+ — large confirmed count (training ID 804291301)
+        (
+            "Seven CPI-Maoist cadres were killed in a gun battle with SFs in Latehar District.",
+            '{"fatalities": 7}'
+        ),
+    ]
+    shot_block = "\n\n".join(f"Text: {ex}\nAnswer: {ans}" for ex, ans in examples)
+    return f"{INSTR_L1}\n\n{shot_block}\n\nText: {text}\nAnswer:"
+
+def make_input_l3(text: str) -> str:
+    """
+    L3: hard-case few-shot prompt targeting known failure modes.
+
+    Examples cover: multi-group arithmetic (sum all groups), claimed attacker
+    casualties where bodies were carried away, deaths from succumbed injuries,
+    and claimed deaths without body recovery (injured bystanders don't count).
+    All examples drawn from the training set
+    (incident IDs: 312160501, 201130801, 303031602, 312081501).
+    """
+    examples = [
+        # Multi-group arithmetic: sum across all named groups (training ID 312160501)
+        (
+            "Three Maoists and a civilian were killed during an encounter at "
+            "Bhejji locality in the Dantewada District.",
+            '{"fatalities": 4}'
+        ),
+        # Claimed attacker deaths: count even when bodies were carried away (training ID 201130801)
+        (
+            "Police claimed to have killed six cadres of the CPI-Maoist in an "
+            "encounter at Bangudwa Naktaia hills in the Gaya District. The Deputy "
+            "Superintendent of Police said that dead bodies of the slain Maoists "
+            "could not be recovered from the encounter site as these were taken "
+            "away by their colleagues.",
+            '{"fatalities": 6}'
+        ),
+        # Succumbed to injuries: delayed deaths still count (training ID 303031602)
+        (
+            "Three troopers of CoBRA were killed and at least 15 others were "
+            "injured in an encounter with CPI-Maoist cadres in Sukma District. "
+            "Officials said while two Commandos had succumbed to bullet injuries "
+            "on March 3, their colleague died on March 4. At least 15 others "
+            "were injured.",
+            '{"fatalities": 3}'
+        ),
+        # Injuries don't count; claimed deaths without body recovery do (training ID 312081501)
+        (
+            "Five security personnel, including two STF troopers, were injured "
+            "when CPI-Maoist cadres ambushed a team of SFs in Sukma District. "
+            "Police also claimed to have gunned down at least 15 Maoists in the "
+            "encounter although no bodies were recovered from the spot.",
+            '{"fatalities": 15}'
+        ),
+    ]
+    shot_block = "\n\n".join(f"Text: {ex}\nAnswer: {ans}" for ex, ans in examples)
+    return f"{INSTR_L1}\n\n{shot_block}\n\nText: {text}\nAnswer:"
+
+def make_input_l4(text: str) -> str:
+    """
+    L4: combined few-shot prompt (L2 + L3 examples, 9 shots total).
+
+    Merges the bin-balanced coverage of L2 with the hard-case targeting of L3.
+    All 9 examples drawn from the training set (IDs: 306301001, 801090901,
+    204120501, 207230601, 804291301, 312160501, 201130801, 303031602, 312081501).
+    Tests whether combining both example sets outperforms either alone.
+
+    NOTE: requires max_input_tokens=1024 in run_causal_batch to avoid
+    truncating long narratives (fixed prompt ~412 tokens).
+    """
+    l2_examples = [
+        # training ID 306301001
+        (
+            "Seven CRPF personnel were injured in a landmine blast in the Bijapur District.",
+            '{"fatalities": 0}'
+        ),
+        # training ID 801090901
+        (
+            "CPI-Maoists killed one villager in Garwah district",
+            '{"fatalities": 1}'
+        ),
+        # training ID 204120501
+        (
+            "CPI-Maoist cadres kill two farmers in the Rohtas District.",
+            '{"fatalities": 2}'
+        ),
+        # training ID 207230601
+        (
+            "Three persons were killed and five others injured by the CPI-Maoist "
+            "at Khaira village in Lakhisarai District.",
+            '{"fatalities": 3}'
+        ),
+        # training ID 804291301
+        (
+            "Seven CPI-Maoist cadres were killed in a gun battle with SFs in Latehar District.",
+            '{"fatalities": 7}'
+        ),
+    ]
+    l3_examples = [
+        # training ID 312160501
+        (
+            "Three Maoists and a civilian were killed during an encounter at "
+            "Bhejji locality in the Dantewada District.",
+            '{"fatalities": 4}'
+        ),
+        # training ID 201130801
+        (
+            "Police claimed to have killed six cadres of the CPI-Maoist in an "
+            "encounter at Bangudwa Naktaia hills in the Gaya District. The Deputy "
+            "Superintendent of Police said that dead bodies of the slain Maoists "
+            "could not be recovered from the encounter site as these were taken "
+            "away by their colleagues.",
+            '{"fatalities": 6}'
+        ),
+        # training ID 303031602
+        (
+            "Three troopers of CoBRA were killed and at least 15 others were "
+            "injured in an encounter with CPI-Maoist cadres in Sukma District. "
+            "Officials said while two Commandos had succumbed to bullet injuries "
+            "on March 3, their colleague died on March 4. At least 15 others "
+            "were injured.",
+            '{"fatalities": 3}'
+        ),
+        # training ID 312081501
+        (
+            "Five security personnel, including two STF troopers, were injured "
+            "when CPI-Maoist cadres ambushed a team of SFs in Sukma District. "
+            "Police also claimed to have gunned down at least 15 Maoists in the "
+            "encounter although no bodies were recovered from the spot.",
+            '{"fatalities": 15}'
+        ),
+    ]
+    all_examples = l2_examples + l3_examples
+    shot_block = "\n\n".join(f"Text: {ex}\nAnswer: {ans}" for ex, ans in all_examples)
+    return f"{INSTR_L1}\n\n{shot_block}\n\nText: {text}\nAnswer:"
 
 def make_input_t5(text: str) -> str:
     """
@@ -279,17 +473,18 @@ def load_t5(model_id: str):
 
 @torch.inference_mode()
 def run_causal_batch(
-    tok, 
-    model, 
-    texts: List[str], 
+    tok,
+    model,
+    texts: List[str],
     max_new_tokens: int = 48,
     max_input_tokens: int = 512,
     batch_size: int = 16,
-    show_progress: bool = True
+    show_progress: bool = True,
+    prompt_fn: Optional[Callable[[str], str]] = None,
 ):
     """
     Batched generation for decoder-only LMs (Llama/Mistral) with left padding.
-    
+
     Args:
         tok: Tokenizer
         model: Causal language model
@@ -298,10 +493,16 @@ def run_causal_batch(
         max_input_tokens: Maximum input tokens (truncate for speed)
         batch_size: Number of prompts to process in parallel
         show_progress: Whether to show progress
-        
+        prompt_fn: Function mapping raw text to a prompt string. Defaults to
+            make_input (L0 baseline). Pass make_input_l1, make_input_l2, or
+            make_input_l3 for rare-bin intervention variants.
+
     Returns:
         list: List of model output strings
     """
+    if prompt_fn is None:
+        prompt_fn = make_input
+
     # Deterministic generation
     if hasattr(model, "generation_config"):
         try:
@@ -320,7 +521,7 @@ def run_causal_batch(
     if getattr(tok, "pad_token_id", None) is None and getattr(tok, "eos_token_id", None) is not None:
         tok.pad_token_id = tok.eos_token_id
 
-    prompts = [make_input(t) for t in texts]
+    prompts = [prompt_fn(t) for t in texts]
     outs: List[str] = []
     total = len(prompts)
     num_batches = (total + batch_size - 1) // batch_size
@@ -452,10 +653,16 @@ def run_openai_batch(
     max_tokens: int = 50,
     rate_limit_delay: float = 0.05,
     max_concurrency: int = 8,
-    show_progress: bool = True
+    show_progress: bool = True,
+    prompt_fn: Optional[Callable[[str], str]] = None,
 ):
     """
     Parallel OpenAI calls with bounded concurrency; preserves order.
+
+    Args:
+        prompt_fn: Function mapping raw text to a prompt string. Defaults to
+            make_input (L0 baseline). Pass make_input_l1, make_input_l2, or
+            make_input_l3 for rare-bin intervention variants.
     """
     # Try to get API key from various sources
     if api_key is None:
@@ -479,8 +686,10 @@ def run_openai_batch(
         raise ImportError(
             "openai package not installed. Install with: pip install openai>=1.0.0"
         )
-    
-    prompts = [make_input(t) for t in texts]
+
+    if prompt_fn is None:
+        prompt_fn = make_input
+    prompts = [prompt_fn(t) for t in texts]
     outs: List[str] = [""] * len(prompts)
     total = len(prompts)
     errors = 0

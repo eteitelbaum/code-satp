@@ -68,3 +68,8 @@ Production models use DistilBERT (classification) and T5 (extraction) for speed/
 - **Count extraction:** T5 QA approach ("How many deaths?") with regex parsing for numeric values
 - **External services:** Google Sheets (gspread), Google Maps API — credentials via Streamlit secrets
 - **No test suite or CI/CD** — validation is notebook-based
+
+## Shell commands
+When running Python one-liners, prefer writing a temporary script file and 
+executing it rather than using python3 -c "..." with inline code. This avoids 
+quote-escaping patterns that trigger security warnings.
