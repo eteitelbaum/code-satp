@@ -1,5 +1,5 @@
 # HuggingFace libraries (NOT on Colab by default - INSTALL THESE)
-transformers>=4.35.0
+transformers==4.46.3
 datasets>=2.14.0
 accelerate>=0.33
 evaluate>=0.4.0
