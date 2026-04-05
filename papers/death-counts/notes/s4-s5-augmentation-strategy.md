@@ -1,13 +1,15 @@
 # S4/S5 Augmentation Strategy: Back-Translation and T5 Paraphrase
 
 Notes for implementing S4 (back-translation) and S5 (T5 paraphrase) augmentation for
-rare-bin improvement. To be revisited after S6 results are in.
+rare-bin improvement.
 
 ## Status
 
-S1–S3 and S6 complete. S4/S5 deferred per the attack plan: "Run only if S1–S3 gains
-plateau." S1 improved bin 6+ by 5.3pp (68.4% → 73.7%). Whether that is sufficient
-depends on how the full results table reads.
+S1–S3 and S6 complete. S4/S5 diagnostic complete (April 2026). Both strategies cleared
+the viability threshold for bin 3–5. Integration into
+`models/count-models/death-count-extraction-seq2seq-rare-bin.ipynb` is the next step.
+
+See `s4-s5-diagnostic-results.md` for full diagnostic results and pass-rate tables.
 
 ---
 
@@ -15,107 +17,192 @@ depends on how the full results table reads.
 
 ### Pivot languages
 
-The classification paper's `BackTranslationAugmentation` uses Hindi (`hi`), Urdu (`ur`),
-and Bengali (`bn`) as pivot languages — the same should be used here. The rationale from
-the classification work applies: SATP incident summaries contain Indian place names
-(district names, forest areas), group names (CPI-Maoist, CoBRA, STF, CRPF), and
-narrative conventions from South Asian journalism. South Asian pivot languages preserve
-these better than European pivots (French, German) which may mangle or drop unfamiliar
-proper nouns.
+Hindi (`hi`), Urdu (`ur`), and Bengali (`bn`). The rationale: SATP incident summaries
+contain Indian place names (district names, forest areas), group names (CPI-Maoist, CoBRA,
+STF, CRPF), and narrative conventions from South Asian journalism. South Asian pivot
+languages preserve these better than European pivots (French, German) which may mangle
+or drop unfamiliar proper nouns.
 
-The tradeoff is that Hindi/Urdu/Bengali translation quality is lower than French/German
-overall, which could introduce noise. For short factual sentences this is acceptable.
+**Diagnostic finding:** All three pivot languages perform identically (~82% overall,
+88.3% for bin 3–5, ~69% for bin 6+). No language is preferable. Use all three.
 
 ### Implementation
 
-The `BackTranslationAugmentation` class is already implemented in:
+The `BackTranslationAugmentation` class is in:
 `models/classification-models/imbalance-handling/imbalance_handling_strategies.py`
 
-It uses `deep-translator` or `googletrans` (whichever is available). Requires internet
-access on Colab — works fine in standard runtime.
+It uses `deep-translator` (free Google Translate API, no key required). Requires internet
+access on Colab. Rate-limit delay of 0.5s between calls is sufficient for standard Colab
+runtimes; increase to 1.0s if translation errors appear in the output.
 
-Adapt for count extraction by:
-1. Filtering training set to bins 3–5 and 6+ only
-2. Running back-translation on each example (all three pivot languages → 3 augmented
-   versions per example)
-3. Running count-preservation check on every augmented example (see below)
-4. Adding passing examples to the training set with appropriate bin weights
-
-### Count-preservation check
-
-This is the critical constraint. After back-translation, run `parse_prediction` on the
-augmented text and compare to the original label. Discard any example where the extracted
-number does not match. A reasonable threshold is 85%+ pass rate across the augmented set
-— if it's lower, the augmentation is adding more noise than signal.
+**Important:** instantiate one augmenter per pivot language to get deterministic
+per-language output. The default `augment_text()` picks a random language from the list:
 
 ```python
-def count_preserved(original_label, augmented_text):
-    extracted = parse_prediction(augmented_text)
-    return extracted == original_label
+augmenters_bt = {
+    'hi': BackTranslationAugmentation(target_languages=['hi']),
+    'ur': BackTranslationAugmentation(target_languages=['ur']),
+    'bn': BackTranslationAugmentation(target_languages=['bn']),
+}
 ```
 
-Run this diagnostic on a sample of ~50 rare-bin examples before committing to full
-augmentation. Log the pass rate per pivot language — one language may be more reliable
-than the others for numeric content.
+Integration steps:
+1. Filter training set to bins 3–5 and 6+ only
+2. Run back-translation through all three pivot languages
+3. Discard only empty/null augmented texts (see filter below)
+4. Concatenate passing examples onto `train_df` before tokenization
+5. Assign same bin weights as the originals (they belong to the same bin)
+6. Combine with S1 (WeightedRandomSampler) for S1+S4 combined run
 
-### Expected outcome
+### Augmentation filter
 
-The classification paper found back-translation gave +20–30% F1 for rare classes. For
-count extraction the gain will likely be smaller since the task is harder and the
-augmentation only affects ~13% of training examples (bins 3–5 and 6+). A reasonable
-expectation is 2–4pp improvement on bin 6+ exact match, potentially with a smaller
-overall MAE penalty than S1.
+Use a minimal null/empty filter only — do not apply a count-preservation check:
+
+```python
+def augmentation_valid(augmented_text: str) -> bool:
+    return bool(augmented_text and isinstance(augmented_text, str) and augmented_text.strip())
+```
+
+**Rationale:** The diagnostic showed that ~18% of examples fail a count-preservation
+check, but most failures are structural — multi-group arithmetic cases where the total
+is implicit (e.g. "five police and two civilians killed", label=7). The numeral "7"
+never appears in the original text either, so no augmentation method can pass the check
+for these examples. These are exactly the hard cases the model needs to learn from.
+Filtering them out makes the augmented training set *less* representative of difficult
+examples. The true rate of genuine augmentation corruption (garbled text, wrong numbers)
+is well below 5%. A null filter catches those without discarding good hard examples.
+
+### Dependencies
+
+Add to `models/count-models/requirements.txt` (already done):
+```
+deep-translator>=1.11.4
+```
+
+No additional requirements beyond what is already in count-models/requirements.txt.
 
 ---
 
 ## S5 — T5 Paraphrase
 
-### Approach
+### Model
 
-Uses a T5 model fine-tuned for paraphrase generation (e.g. `Vamsi/T5_Paraphrase_Paws`)
-to generate surface-form rewrites of rare-bin examples.
+`google/flan-t5-large` — same model used in the classification paper experiments.
+**Do not use `Vamsi/T5_Paraphrase_Paws`** — that model uses a different prompt format
+(`"paraphrase: {text} </s>"`) incompatible with the prompt in `T5ParaphraseAugmentation`.
 
-### Why this is riskier than S4
+### Implementation
 
-T5 paraphrase models are not constrained to preserve numbers. They may:
-- Convert numerals to words or vice versa ("three" → "several")
-- Drop casualty groups in long compound sentences
-- Reorder clauses in ways that change what the count refers to
+The `T5ParaphraseAugmentation` class is in:
+`models/classification-models/imbalance-handling/imbalance_handling_strategies.py`
 
-The count-preservation check is even more important here than for back-translation.
-Empirically, T5 paraphrase is likely to have a lower pass rate than back-translation on
-numeric factual content.
+Call `paraphrase()` directly rather than `augment_rare_classes()` — the latter uses
+`label_cols` designed for multi-label classification, not count bins:
 
-### Recommendation
+```python
+t5_aug = T5ParaphraseAugmentation(model_name="google/flan-t5-large")
 
-Try S4 first. If the count-preservation rate for back-translation is high (85%+) and the
-augmented training set is large enough, S4 alone may be sufficient. S5 is worth trying
-only if S4 gives insufficient coverage (e.g. too many examples fail the preservation
-check across all three pivot languages).
+paraphrases = t5_aug.paraphrase(
+    text,
+    num_return_sequences=2,
+    seed=RANDOM_SEED + i
+)
+```
+
+Apply the same `augmentation_valid` null/empty filter as S4 before adding to training data.
+
+### Failure modes (from diagnostic)
+
+| Failure type | Count (of 676) | Share |
+|---|---|---|
+| number_dropped | 93 | 13.8% |
+| wrong_number | 44 | 6.5% |
+| numeral_to_word | 0 | 0% |
+
+- `number_dropped`: T5 rewrites at too high an abstraction level, losing numbers entirely.
+  Increasing `max_new_tokens` reduces truncation-related cases.
+- `wrong_number`: Two sub-causes — (a) multi-group arithmetic (same structural issue as
+  S4); (b) incidental numbers in the text (ages, group sizes) replacing the count.
+- `numeral_to_word`: Zero cases. Unlike back-translation, T5 does not convert "8" to
+  "eight" — it either preserves numerals or drops them.
+
+### Dependencies and version pinning
+
+**Critical:** `T5ParaphraseAugmentation` uses the `text2text-generation` pipeline task,
+which is broken in `transformers>=5.0.0`. Pin to `transformers==4.57.1`.
+
+This is already pinned in `models/count-models/requirements.txt`. The classification-models
+requirements.txt uses `transformers>=4.46` (unpinned) — do not install from that file for
+this task. See `notes/dependency-pinning.md`.
+
+**Runtime restart required:** Colab pre-installs transformers 5.0.0. Installing 4.57.1
+via pip does not take effect until the runtime is restarted. The Colab setup cell in
+`augmentation-diagnostics.ipynb` handles this automatically with `os.kill(os.getpid(), 9)`
+— after the auto-restart, skip the setup cell and run from the imports cell down.
+
+```
+Device set to use cuda:0
+🔍 Model: google/flan-t5-large
+   - Using transformers version: 4.57.1  ← confirm this before running
+```
+
+The "pipelines sequentially on GPU" warning is harmless — ignore it.
+
+### Additional dependencies
+
+Add to `models/count-models/requirements.txt` (already done):
+```
+sentence-transformers>=2.2.2   # for similarity filtering in T5ParaphraseAugmentation
+sentencepiece>=0.1.99          # for T5 tokenizer
+```
 
 ---
 
-## Diagnostic notebook plan
+## Integration into death-count-extraction-seq2seq-rare-bin.ipynb
 
-Before implementing either strategy in the training pipeline, run a standalone diagnostic
-notebook:
+### Where augmented data is added
 
-1. Load the rare-bin training examples (bins 3–5 and 6+, ~300–400 examples)
-2. Run back-translation through Hindi, Urdu, Bengali
-3. For each augmented example, run `parse_prediction` and compare to original label
-4. Report pass rate per language and overall
-5. Manually inspect 10–20 failing examples to understand failure modes
-6. If pass rate is acceptable, also run T5 paraphrase on the same sample for comparison
+Insert augmentation between data loading and tokenization — the same position as S3's
+targeted oversampling. Add passing augmented examples to `train_df`, then proceed to
+`prepare_seq2seq_data()` and tokenization as normal.
 
-This notebook can reuse `BackTranslationAugmentation` from the classification codebase
-directly with minimal adaptation.
+### Recommended combined strategy: S1 + S4
+
+```python
+# 1. Apply S4 back-translation augmentation
+augmented_rows = []
+for lang, aug in augmenters_bt.items():
+    for _, row in rare_df.iterrows():
+        aug_texts = aug.augment_text(row['incident_summary'], num_augmentations=1)
+        aug_text = aug_texts[0] if aug_texts else None
+        if aug_text and aug_text.strip():   # discard only empty/null outputs
+            new_row = row.copy()
+            new_row['incident_summary'] = aug_text
+            augmented_rows.append(new_row)
+        time.sleep(0.5)
+
+aug_df = pd.DataFrame(augmented_rows)
+train_df_augmented = pd.concat([train_df, aug_df], ignore_index=True)
+
+# 2. Apply S1 WeightedRandomSampler on the augmented training set
+# (augmented examples get same bin weights as their source examples)
+```
+
+### Reporting augmentation statistics
+
+Log before training:
+- n rare-bin examples before augmentation
+- n augmented examples generated per language (i.e. non-null outputs)
+- n total rare-bin examples after augmentation
+
+This goes in the strategy results table and is useful for the methods section.
 
 ---
 
-## Integration with training pipeline
+## Data column names (important)
 
-If S4 is approved after the diagnostic:
-- Add augmented examples to `train_df` before tokenization
-- Assign same bin weights as the originals (they are members of the same bin)
-- Could combine with S1 (oversampling) for a combined S1+S4 run — oversampling ensures
-  augmented rare-bin examples are seen frequently; augmentation increases their diversity
+The main dataset (`satp_clean.csv`) uses:
+- `first_action` — not `action_type` — for filtering to Armed Assault / Bombing
+- `incident_number` — not `incident_id` — as the row identifier
+
+The val/test CSVs in `models/count-models/data/` also use `incident_number`.
