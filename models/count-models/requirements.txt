@@ -4,6 +4,11 @@ datasets>=2.14.0
 accelerate>=0.33
 evaluate>=0.4.0
 bitsandbytes>=0.43
+sentence-transformers>=2.2.2
+sentencepiece>=0.1.99
+
+# Augmentation (back-translation and T5 paraphrase)
+deep-translator>=1.11.4
 
 # API libraries for LLM inference
 openai>=1.0.0
