@@ -13,6 +13,19 @@ See `s4-s5-diagnostic-results.md` for full diagnostic results and pass-rate tabl
 
 ---
 
+## Prior Work on Generative Augmentation for Conflict Text
+
+Parolin et al. (2022, parolin2022b) provide a precedent for using generative models to
+augment conflict training data with Confli-T5 — a pipeline built on standard `t5-large`
+and `bart-large-mnli` for generating synthetic conflict event text. No custom fine-tuned
+weights are released; the pipeline uses off-the-shelf T5. Confli-T5 is designed for event
+type augmentation rather than numeric extraction tasks, and does not address class
+imbalance in count distributions. Cite as prior precedent in the augmentation section;
+distinguish S4/S5 by the domain-specific pivot language choices and count-preservation
+filtering rationale.
+
+---
+
 ## S4 — Back-Translation
 
 ### Pivot languages

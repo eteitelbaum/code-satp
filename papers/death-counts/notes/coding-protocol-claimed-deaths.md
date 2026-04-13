@@ -91,6 +91,30 @@ coding protocol that the human coders applied. That is the right framing. Altern
 > follow the maximalist protocol to align extraction behavior with the coding protocol
 > the human annotators applied.
 
+## Sources on Fake Encounters and Body Disposal (researched 2026-04-12)
+
+A search for sources specifically documenting body removal/disappearance as forensic obstruction in fake encounter cases found the following. Worth developing for a future draft or a separate paper on the epistemology of conflict casualty counts.
+
+**Strongest source for the Maoist/Chhattisgarh context:**
+- Sarkeguda 2012 Judicial Commission (Justice V.K. Agrawal) — Government of Chhattisgarh inquiry found post-mortem reports "written without the post-mortem actually being ever conducted" and "clear manipulation of the investigation." 17 villagers killed and falsely classified as Maoists, including 7 minors. Reported in *Scroll.in* (Dec 4, 2019) https://scroll.in/latest/945423 and *Al Jazeera* (Dec 4, 2019) https://www.aljazeera.com/news/2019/12/4/indian-govt-report-17-adivasi-falsely-dubbed-maoists-shot-dead
+
+**Body disposal as forensic obstruction (Chhattisgarh, recent):**
+- Operation Black Forest (May 2025): 8 bodies cremated in defiance of AP High Court order, families physically detained during cremation. *The Wire* https://m.thewire.in/article/rights/narayanpur-basavaraju-maoists-cremated-families; *Scroll.in* https://scroll.in/article/1082902
+
+**Most theoretically precise statement of the mechanism (Punjab analogy):**
+- Human Rights Watch, *Protecting the Killers: A Policy of Impunity in Punjab, India* (October 2007): "To hide the evidence of their crimes, security forces secretly disposed of the bodies, usually by cremating them." Thousands cremated as "unclaimed." Punjab context, not Maoist, but explicit connection between body disposal and forensic obstruction. https://www.hrw.org/reports/2007/india1007/india1007.htm
+
+**Body burial as concealment (State Dept., Chhattisgarh):**
+- U.S. Department of State, *2008 Human Rights Report: India*: documents a Chhattisgarh case where police buried bodies in a forest to conceal deaths; under media pressure bodies were exhumed and autopsies confirmed gunshot deaths. https://2009-2017.state.gov/j/drl/rls/hrrpt/2008/sca/119134.htm
+
+**Supreme Court guidelines violated by body removal:**
+- *PUCL v. State of Maharashtra* (2014) 10 SCC 635: 16 mandatory guidelines for encounter investigations including videographed post-mortems in district hospitals; cremation without family consent violates these guidelines. https://www.livelaw.in/breaking-killings-police-encounters-affect-credibility-rule-law-administration-criminal-justice-system-supreme-court-issues-16-guidelines-investigation-police-encounters
+
+**Academic work (Kashmir, not Maoist):**
+- "Reproducing Regimes of Impunity: Fake Encounters and the Informalization of Everyday Violence in Kashmir Valley," *Cultural Studies* 24(1), 2010. DOI: 10.1080/09502380903221117. Paywalled; most theoretically precise academic framing but wrong conflict.
+
+No peer-reviewed academic journal article making this argument specifically for the Naxalite context was found. The documentation comes from investigative journalism and judicial commissions.
+
 ## Action Item
 
 Decide whether to address this in the main text (framing section) or as a footnote.

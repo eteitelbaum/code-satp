@@ -24,8 +24,13 @@ completeness.
 
 1. Llama L0 vs Llama L4 — headline LLM intervention result
 2. Llama L4 vs GPT-4o-mini L1 — open-source vs proprietary ceiling
-3. T5-Large S0 vs best S1/S2/S3 — headline seq2seq intervention result
+3. T5-Large S0 vs S1+S4 (filtered) — headline seq2seq intervention result
 4. Best seq2seq vs best LLM — cross-track comparison
+
+**Note (April 2026):** All S0–S6 results now available. The bin 3-5 improvement from
+S1+S4 (86.7%→88.0% exact, n=75) is ~1 additional correct prediction. Bootstrap CIs
+are expected to be wide enough (±4pp) to render this non-significant. This should be
+confirmed and reported explicitly in the paper — see `rare-bin-strategy-results.md`.
 
 ## Implementation
 

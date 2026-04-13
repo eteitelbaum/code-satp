@@ -1,0 +1,8 @@
+Model,Strategy,Overall MAE,Nonzero MAE,Bin 3-5 MAE,Bin 6+ MAE,Exact 3-5 (%),Exact 6+ (%)
+GPT-4o-mini,L0 Baseline (original experiment),0.133,0.174,0.16,1.237,93.3,84.2
+Llama-3.1-8B,L0 Baseline,0.235,0.187,0.213,1.526,89.3,78.9
+Llama-3.1-8B,L1 Attacker deaths clarification,0.318,0.202,0.227,0.947,88.0,76.3
+Llama-3.1-8B,L2 Bin-balanced few-shot,0.199,0.15,0.28,0.974,88.0,78.9
+Llama-3.1-8B,L3 Hard-case few-shot,0.113,0.143,0.2,0.842,90.7,81.6
+Llama-3.1-8B,L4 Combined few-shot (L2+L3),0.107,0.126,0.28,0.632,88.0,89.5
+GPT-4o-mini,L1 (ceiling reference),0.158,0.185,0.267,0.368,90.7,89.5
