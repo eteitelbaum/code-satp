@@ -1,68 +1,21 @@
 # Section 7: Discussion
 
-## Target: 700–900 words
+The results of this study suggest a favorable picture of automated death count extraction. Generative models substantially outperform the encoder baseline across both tracks, and on the common low-count events that make up the large majority of the test set, most approaches achieve near-ceiling performance. However, the bin-level decomposition complicates this picture. Aggregate MAE on a heavily skewed distribution is dominated by the low-count bins where all models perform well, and a model that fails consistently on high-fatality events can appear competitive in aggregate. The bin-level results make this failure visible. Models that look broadly comparable on overall MAE differ substantially on exact match rates for the rarer, higher-count bins. Consequently, our first important finding is that automated event coding papers reporting count fields should decompose performance across the count distribution rather than relying on aggregate error alone.
 
----
+### Addressing Rare Bin Errors
 
-## Purpose
-Synthesize findings into practical recommendations, address broader implications for the field, and note limitations. Avoid restating results; assume the reader has just finished §6. Focus on the "so what" for conflict researchers and the methodological takeaways for automated event coding.
+With respect to addressing rare-bin errors, LLMs are more responsive to interventions than seq2seq models, and the nature of effective interventions differs between the two families. A protocol clarification instruction in isolation is counterproductive for LLMs, pushing the model to overcount on ambiguous cases without anchoring it to the specific narrative structures that drive miscoding. More targeted prompting strategies that feature demonstrations of hard cases prove considerably more effective. For seq2seq models, reweighting and oversampling strategies are similarly counterproductive, raising overall MAE without improving rare-bin performance. Back-translation augmentation produces directional improvement on bin 3–5 and is the only training-side strategy worth applying. The bin 6+ gap between Flan-T5-Large and the ceiling model reflects a capacity constraint that training-side interventions cannot close.
 
----
+Not all rare-bin errors are resolvable through model adjustment, however. An analysis of the rare-bin errors revealed that a small number of cases have correct counts that are either absent from the text or inconsistent with the ground-truth label, and no prompt or training intervention can address them. Setting those cases aside, the best models approach near-perfect performance on bin 6+. Because rare events are few by definition, targeted manual review of high-count predictions is feasible in a way that bulk review is not. A reasonable workflow is to run the model across all events and reserve manual inspection for predictions above a certain count threshold, where the number of cases is small enough to examine and the cost of error is largest.
 
-## Outline
+### Model Behavior and Practical Implications
 
-### 7.1 Practical Recommendations (≈200 words)
-Lead with the actionable table, then brief prose on the key decision points:
+A consistent pattern in the study's results is that models apply an implicit evidentiary standard closer to UCDP-style conservative coding than to the ACLED-style maximalist protocol used in this dataset. When attacker casualties are described as claimed or unrecovered, models tend to discount them, producing predictions that align with a lower-bound evidentiary threshold rather than the reporting-based coding that the ground-truth labels reflect. This default would not surface without case-level diagnostic analysis and is invisible in aggregate metrics. A protocol clarification instruction alone does not override it. The results for the protocol clarification strategy show that explicitly instructing the model to count claimed casualties worsens overall performance, suggesting the default is more deeply internalized than a simple instruction can address. Researchers should decide which evidentiary standard their system is meant to apply and use demonstrations from the target corpus to teach the model how to implement it. Without this step, automated systems will default toward a conservative lower-bound standard regardless of the researcher's intentions.
 
-| Scenario | Recommendation |
-|---|---|
-| No GPU; reproducibility required | Llama-3.1-8B + L4 (89.5% bin 6+ exact; no training cost) |
-| Fine-tuning available; bin 3–5 critical | T5-Large + S1+S4 (best seq2seq on moderate counts) |
-| Highest overall accuracy | GPT-4o-mini + L1 (best bin 6+ MAE: 0.368) |
-| High-volume pipeline | T5-Large + S0 (best overall MAE; avoid reweighting) |
+Our findings also suggest practical considerations regarding model choice that researchers should weigh alongside performance. Scaling seq2seq models to close the bin 6+ gap requires QLoRA fine-tuning, which demands substantial GPU resources and non-trivial configuration. GPT-4o-mini is the simplest deployment path, but it is a proprietary paid service and incident data must be transmitted to an external provider. Llama-3.1-8B with combined few-shot prompting achieves the strongest rare-bin performance without any fine-tuning, runs on modest local hardware, keeps data within the researcher's environment, and is free to use. The learning curve is steeper than a simple API call, but for researchers handling sensitive data or working without a cloud budget, the open-source route is both capable and practical.
 
-- For Llama-scale models: use demonstrations, not instructions alone; L1 without examples harms performance
-- Fine-tuning is worth the cost for overall MAE but does NOT help bin 6+; if high-fatality events are the priority, L4 prompting is the better investment
+### Limitations and Future Work
 
-### 7.2 Evaluation Design Implication (≈150 words)
-- Bin-level decomposition is a methodological contribution, not just a reporting choice
-- Simon et al.'s "deaths is easy" finding is a data-construction artifact (UCDP excludes zero-death events); aggregate MAE masks the rare-bin failure that this paper identifies
-- Recommendation for the field: automated event coding papers should report distributional performance on count fields, not just aggregate MAE; skewed distributions make aggregate metrics misleading
+Several limitations bear on the interpretation of our results. All experiments use incidents from the Indian Maoist conflict as reported by SATP, and generalizability to other conflicts and reporting conventions requires validation on additional corpora. The focused single-conflict corpus enables the diagnostic precision that motivates the experimental design, but it limits the scope of what can be claimed about automated count extraction in other settings. Results for the API-based models are tied to specific model versions that may change without notice, and replication packages should pin model versions accordingly. The component columns recording deaths by actor group were used to verify the coding protocol but were not analyzed as separate extraction targets, which would allow direct testing of the evidentiary asymmetry hypothesis and enable comparison with UCDP-AEC's per-field schema. The bin-level exact match figures should be interpreted alongside the aggregate MAE results, which pool across all test observations and provide the primary basis for statistical inference. The small number of bin 6+ observations means that bin-level comparisons carry wider margins of uncertainty than the overall metrics.
 
-### 7.3 Coding Protocol Transparency (≈150 words)
-- The L1 asymmetry (helps GPT, harms Llama) makes explicit what prior work left implicit: automated systems apply an evidentiary standard that may not match the human coding protocol
-- Different LLMs have internalized different evidentiary defaults — opaque unless explicitly tested
-- Practical recommendation: specify which protocol the system follows (maximalist vs. conservative), ground it in the data (as L1 is grounded in component-column analysis), and verify on a validation set before deployment
-- Automated systems enter the ACLED vs. UCDP methodological debate whether researchers intend it or not — better to make the choice explicit
-
-### 7.4 Limitations (≈200 words)
-
-**Single corpus:** All results from the Indian Maoist conflict / SATP; generalizability requires validation on other conflicts and reporting conventions. Counter: the focused corpus enables diagnostic precision — the goal is understanding *why* models fail, not building a general-purpose system.
-
-**Underpowered bin-level tests:** Bin 6+ n=38 → effects as large as 13pp are not statistically distinguishable; a larger test set with stratified rare-bin sampling would allow sharper inference on intervention effects.
-
-**LLM version drift:** Results tied to specific model versions; API models update without notice; pin versions in replication packages.
-
-**Per-side decomposition not analyzed:** Component columns (security/maoist/civilian) are used to verify protocol but not as separate extraction targets — prevents direct testing of the evidentiary asymmetry hypothesis and direct comparison with UCDP-AEC's per-field schema.
-
-### 7.5 Future Work (≈100 words, 4–5 bullets)
-- Per-side decomposition: test evidentiary asymmetry hypothesis quantitatively; compare with UCDP-AEC 6-field schema
-- Other count fields: injuries, arrests, surrenders — same distributional challenge; same framework applies
-- Larger seq2seq models: does T5-XL full fine-tuning close the bin 6+ gap? Capacity interpretation predicts yes
-- Chain-of-thought prompting: intermediate steps (identify groups → count per group → sum) for multi-group cases
-- Low/high bound estimation: analogous to UCDP Deaths Low / Deaths High; adds uncertainty quantification compatible with UCDP methodology
-
----
-
-## Key Citations
-- Steinert 2025 (JPR) — LLM instability on fatality estimates; motivates protocol transparency
-- Northcutt et al. 2021 — annotation quality auditing
-- Simon et al. 2025 (UCDP-AEC) — "deaths is easy" artifact; aggregate metric limitation
-- UCDP/ACLED methodology — protocol comparison
-- Parolin et al. 2022 (Confli-T5) — augmentation precedent
-
-## Tone Notes
-- Keep practical recommendations concrete — name specific models and strategies, not just principles
-- The aggregate-MAE critique of Simon et al. should be collegial, not adversarial — frame as a limitation of evaluation design that this paper addresses, not a flaw in their work
-- The coding protocol discussion should be framed as a contribution to an ongoing methodological debate in conflict studies, not just an NLP finding
-- Limitations section: be honest about single-corpus generalizability; but lean on the diagnostic precision argument to show this is a feature not a bug for the paper's main contribution
+The most natural extension of this work is per-side decomposition, treating security force, Maoist, and civilian death counts as separate extraction targets rather than summing to a total. This would allow direct testing of the evidentiary asymmetry hypothesis and enable comparison with UCDP-AEC's per-field schema. The same bin-level evaluation framework applies to other count fields in the SATP corpus, including injuries, arrests, and surrenders, where the distributional challenge is identical. On the modeling side, full fine-tuning of larger seq2seq models would test whether the bin 6+ capacity gap closes with scale, and chain-of-thought prompting may address the multi-group enumeration cases that currently drive miscoding in both model families.
