@@ -1,47 +1,9 @@
-# Section 1: Introduction
+# Introduction
 
-## Target: 500–700 words
+Automated conflict event coding has advanced substantially in recent years. Transformer-based models now perform well on tasks such as identifying actors, classifying event types, and recovering structured information from conflict narratives [@hu2022; @halterman2021]. Yet the extraction of fatality counts remains less well developed in the automation literature despite its importance for conflict measurement. Existing event datasets routinely record fatality counts, and automated systems sometimes attempt to extract them, but count fields have generally been treated as secondary outputs rather than as a research problem in their own right. For example, GDELT's V2COUNTS field remains widely used despite longstanding concerns about noise and validity [@leetaru2013], while more recent work in the abstractive event extraction literature incorporates fatality counts as one field among many rather than treating count extraction as the primary object of analysis [@simon2025]. As a result, conflict research now has a growing literature on automated coding of who acted, where, and in what form, but much less evidence on how well current models recover the fatality information used to measure conflict severity.
 
----
+Fatality counts represent a distinct measurement problem because their distribution is highly skewed. In conflict event data, most observations are concentrated at the lower end of the count distribution, while high-fatality events are relatively uncommon. Under these conditions, aggregate performance metrics may obscure systematic error in the upper tail. This is consequential for conflict research because fatality counts are used to characterize variation in conflict severity and escalation. Recent evidence further suggests that naive large language model prompting for conflict fatality counts can be unstable and sensitive to query formulation, indicating a need for more systematic evaluation [@steinert2025].
 
-## Purpose
-Motivate the problem, establish the gap in conflict studies, and preview the paper's contributions. Lead with the stakes for conflict measurement research, not with NLP methodology.
+This paper examines death count extraction using roughly 10,000 hand-coded incident summaries from the South Asia Terrorism Portal on the Maoist insurgency in India. I compare two modeling approaches. The first uses fine-tuned sequence-to-sequence models, with Flan-T5-Large as the primary model and T5-XL-QLoRA as an upper-bound comparison. The second uses prompted large language models, with Llama-3.1-8B as the primary model and GPT-4o-mini as a benchmark. Both are evaluated against a ConfliBERT-Poisson baseline on the same held-out test set. The analysis proceeds in three stages. It first establishes baseline performance across model families. Next, it introduces a bin-level evaluation framework spanning `0`, `1`, `2`, `3-5`, and `6+` deaths to identify where aggregate metrics obscure performance differences. Finally, the paper tests a set of targeted interventions designed to improve performance on rare high-count cases.
 
----
-
-## Outline
-
-### 1.1 Opening hook + gap statement (≈150 words)
-- Conflict researchers increasingly rely on automated event coding; transformer-era tools (ConfliBERT, IndiaPoliceEvents) now code event types, actors, locations reliably at scale
-- But numeric count extraction — how many people died — has not received the same treatment
-- GDELT's V2COUNTS is the only automated count in wide use; acknowledged as noisy and unvalidated
-- Recent abstractive event extraction (Simon et al. UCDP-AEC; LEMONADE) includes fatality counts but buries them in aggregate metrics and excludes zero-count events by design
-- **The gap:** no paper has treated conflict event death count extraction as the primary research problem
-
-### 1.2 Why it matters: the rare-event problem (≈150 words)
-- 71% of incidents in our corpus have zero deaths; 2% involve six or more — but high-fatality events drive conflict severity metrics, escalation codings, and policy attention
-- Getting high-count events wrong is not a marginal error; it is a systematic bias in automated conflict measurement
-- Steinert (2025, JPR): naive LLM prompting for fatality counts is unreliable and language-biased — existing tools are not a solution
-
-### 1.3 This paper (≈200 words)
-- ~10,000 SATP incidents; two parallel tracks: seq2seq fine-tuning (Flan-T5-Large; T5-XL-QLoRA ceiling) and LLM prompting (Llama-3.1-8B; GPT-4o-mini ceiling)
-- Methodological contribution: **bin-level evaluation** decomposes overall MAE into performance across the count distribution — reveals systematic failure that aggregate metrics mask
-- Systematic **intervention study** on both tracks targeting rare high-count bins
-- Findings preview (4 bullets max):
-  - Few-shot prompting (L4) closes the bin 6+ gap for Llama: 59% MAE reduction, matches GPT-4o-mini
-  - Training interventions help T5-Large on bin 3–5 (back-translation S4) but cannot close bin 6+ — a capacity problem, not a data problem
-  - Instruction-following asymmetry (L1 helps GPT, harms Llama) has practical model-selection implications
-  - A three-category error taxonomy identifies the irrecoverable hard floor and motivates each intervention
-
-### 1.4 Roadmap (≈50 words, can be a single sentence or brief list)
-- §2 Related work → §3 Data → §4 Models → §5 Baseline results + diagnostics → §6 Rare-bin interventions → §7 Discussion
-
----
-
-## Key Citations
-- Steinert 2025 (JPR); Simon et al. 2025 (UCDP-AEC); LEMONADE; Halterman 2021; ConfliBERT; GDELT V2COUNTS
-
-## Tone Notes
-- Lead with conflict measurement stakes, not NLP methodology
-- Zhong et al. 2023 (EACL): mention briefly here or in §2 as closest NLP precedent; distinguish by domain and what this paper adds
-- Keep the roadmap to one sentence or a compact list — don't over-explain the structure
+The results show that generative models outperform the encoder baseline on aggregate measures, while the bin-level analysis reveals sharper differences on rare high-fatality cases. Few-shot prompting substantially improves Llama-3.1-8B on the highest count bin, while training-side interventions on Flan-T5-Large yield more limited gains. The analysis indicates that automated extraction of count fields should not be evaluated with aggregate error alone, since models that appear broadly similar may differ substantially in the upper tail of the distribution. It also suggests that automated death count extraction can support conflict research, but that high-fatality cases remain the point at which closer scrutiny is required.
