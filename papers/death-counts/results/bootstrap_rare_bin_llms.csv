@@ -1,0 +1,6 @@
+strategy,overall_mae_p_base,nonzero_mae_p_base,bin35_mae_p_base,bin35_exact_p_base,bin6_mae_p_base,bin6_exact_p_base,id_p_ceil,overall_mae_p_ceil,nonzero_mae_p_ceil,bin35_mae_p_ceil,bin35_exact_p_ceil,bin6_mae_p_ceil,bin6_exact_p_ceil,id_p_base
+L0,NA,NA,NA,NA,NA,NA,0,2,2,2,2,2,2,NA
+L1,0.1424,0.6108,0.2788,0.2788,0.1412,0.834,0,0.0224,0.4,0.0848,0.122,0.5844,0.236,0
+L2,0.03,0.1488,0.2632,0.4548,0.0592,1.292,0,0.6576,0.2988,0.0324,0.0324,0.3812,0.2696,0
+L3,0.0424,0.1612,1.1344,1.2012,0.0868,0.754,0,0.3636,0.334,0.3092,0.4652,0.4416,0.77,0
+L4,0.0356,0.0616,0.2724,0.446,0.0396,0.0396,0,0.2748,0.1092,0.0376,0.0376,0.2708,0.2708,0

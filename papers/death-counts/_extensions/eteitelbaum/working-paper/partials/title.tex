@@ -1,0 +1,31 @@
+%% Main title %%
+
+$if(title)$
+\title{$title$$if(thanks)$\thanks{$thanks$}$endif$}
+$endif$
+
+%% Subtitle %%
+
+$if(subtitle)$
+\usepackage{etoolbox}
+\makeatletter
+\providecommand{\subtitle}[1]{% add subtitle to \maketitle
+  \apptocmd{\@title}{\par {\vskip 0.25em \large #1 \par}}{}{}
+}
+\makeatother
+\subtitle{$subtitle$}
+$endif$
+
+%% Author info %%
+
+$if(anonymized)$
+  % No author block for anonymized version
+$else$
+  \author{${ by-author:authors.tex()[\and ] }}
+$endif$
+
+% Omit the date since the \published command does that
+\date{}  % blank date
+
+\usepackage{url}
+\urlstyle{same}

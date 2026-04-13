@@ -1,0 +1,29 @@
+$-- Hyperref configuration that uses YAML variables
+$--
+$if(colorlinks)$
+\hypersetup{
+$if(pdftitle)$
+  pdftitle={$pdftitle$},
+$endif$
+$if(pdfauthor)$
+  pdfauthor={$pdfauthor$},
+$endif$
+$if(pdfkeywords)$
+  pdfkeywords={$pdfkeywords$},
+$endif$
+  colorlinks=true,
+$if(linkcolor)$
+  linkcolor={$linkcolor$},
+$endif$
+$if(filecolor)$
+  filecolor={$filecolor$},
+$endif$
+$if(citecolor)$
+  citecolor={$citecolor$},
+$endif$
+$if(urlcolor)$
+  urlcolor={$urlcolor$},
+$endif$
+  pdfcreator={LaTeX via pandoc}
+}
+$endif$ 

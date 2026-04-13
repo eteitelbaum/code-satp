@@ -1,0 +1,7 @@
+model,mae_p_base,rmse_p_base,within_1_p_base,within_2_p_base,nonzero_mae_p_base,mae_p_ceil,rmse_p_ceil,within_1_p_ceil,within_2_p_ceil,nonzero_mae_p_ceil
+t5_base,0.1052,0.278,0,0.002,0.082,0.0116,0.02,0.3056,0.8276,0.0108
+t5_large,0,0.0528,0,8e-4,0,0.1344,0.1432,0.4544,1.1976,0.1036
+indicbart,0.5912,0.6768,0.8104,0.192,0.1068,0,0,0,0,0
+mt5,0.1132,0.5956,0.016,0.512,0,0,0,0.0016,0.0024,0
+nt5,0.1628,0.388,0,0.0336,0.044,0,8e-4,0.054,0.2276,0.0012
+t5_xl,0,0.002,0,0.004,0,NA,NA,NA,NA,NA

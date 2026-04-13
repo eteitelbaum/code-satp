@@ -1,0 +1,250 @@
+---
+title: | 
+  Extracting Event Counts and Locations from Conflict Reports
+subtitle: |
+  Evidence from the South Asia Terrorism Portal
+short-title: |
+  Extracting Event Counts
+published: |
+  Prepared for the APSA Virtual Research Meeting. 
+date: April 8, 2026
+code-repo: |
+  Access the code, data, and analysis at <https://github.com/eteitelbaum/code-satp.git>
+author: 
+  - name: Emmanuel Teitelbaum
+    email: ejt@gwu.edu
+    orcid: 0000-0001-7089-0588
+    title: Associate Professor 
+    affiliations:
+      - id: gwu-ps
+        name: George Washington University
+        department: Department of Political Science
+    attributes: 
+      corresponding: true
+abstract: | 
+
+# keywords: 
+#   - large language models
+#   - natural language processing
+#   - political violence
+#   - event coding
+#   - text classification
+#   - count data
+thanks: |
+  I am grateful to Mohiddin Bacha Shaik and Shiva Sharma for their excellent research assitance.
+funding-info: | 
+  This project received funding from the Smith Richardson Foundation and in-kind support from the GW Institute for International Economic Policy. 
+#conflicts: |
+#  We have no known conflict of interest to disclose.
+anonymized: false
+#word-count: "XXXX"
+format:
+  working-paper-pdf:
+    keep-tex: true
+  #hikmah-manuscript-docx: default
+  #academic-typst: default
+execute:
+  echo: false
+  warning: false
+  message: false
+params:
+  reps: 5000 # set to 5000 for final render
+bibliography: nlp-coding.bib
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(readr)
+library(here)
+library(patchwork)
+library(scales)
+library(gt)
+library(jsonlite)
+library(tidymodels)
+
+here::i_am("satp-counts.qmd")
+
+# Load custom functions
+source(here("data-viz/table_functions.R"))
+source(here("data-viz/heatmap_functions.R"))
+
+# ── Pre-computed bootstrap p-values (run bootstrap_*.R scripts once) ──────────
+boot_baseline_seq2seq <- read_csv(
+  here("results/bootstrap_baseline_seq2seq.csv"), show_col_types = FALSE)
+boot_baseline_llms    <- read_csv(
+  here("results/bootstrap_baseline_llms.csv"),    show_col_types = FALSE)
+boot_rarebin_seq2seq  <- read_csv(
+  here("results/bootstrap_rare_bin_seq2seq.csv"), show_col_types = FALSE)
+boot_rarebin_llms     <- read_csv(
+  here("results/bootstrap_rare_bin_llms.csv"),    show_col_types = FALSE)
+
+# ── Point estimates ────────────────────────────────────────────────────────────
+metrics_seq2seq <- load_seq2seq_baseline_metrics(here("results/death-counts-seq2seq"))
+metrics_llms    <- load_llm_baseline_metrics(here("results/death-counts-llms"))
+
+metrics_rarebin_seq2seq <- load_seq2seq_rare_bin_metrics(
+  results_dir = here("results/death-counts-seq2seq"),
+  rarebin_dir = here("results/rare-bins/seq2seq")
+)
+metrics_rarebin_llms <- load_llm_rare_bin_metrics(
+  llm_dir     = here("results/death-counts-llms"),
+  rarebin_dir = here("results/rare-bins/llms")
+)
+
+# ── Bin-level data for heatmaps ───────────────────────────────────────────────
+bin_seq2seq <- load_seq2seq_bin_metrics(here("results/death-counts-seq2seq"))
+bin_llms    <- load_llm_bin_metrics(here("results/death-counts-llms"))
+```
+
+# Introduction
+
+[Introduction text to be written.]
+
+# Data and Methods
+
+[Methods text to be written.]
+
+# Results
+
+## Baseline Model Comparisons
+
+[Results text to be written. Tables @tbl-seq2seq-baseline and @tbl-llm-baseline report overall performance for the seq2seq and LLM model families respectively. Values in bold are significantly better than the ConfliBERT-Poisson baseline (paired bootstrap, $n = 5{,}000$ replications, $p < .05$); a dagger (†) indicates the model is not significantly different from the ceiling model.]
+
+```{r}
+#| label: tbl-seq2seq-baseline
+#| tbl-cap: "Death count extraction performance: seq2seq models."
+
+make_baseline_gt(
+  metrics_df  = metrics_seq2seq,
+  pvals_df    = boot_baseline_seq2seq,
+  model_order = c("conflibert", "t5_base", "t5_large",
+                  "indicbart", "mt5", "nt5", "t5_xl"),
+  col_labels  = c(
+    conflibert = "ConfliBERT",
+    t5_base    = "T5-Base",
+    t5_large   = "T5-Large",
+    indicbart  = "IndicBART",
+    mt5        = "mT5-Base",
+    nt5        = "NT5-Small",
+    t5_xl      = "T5-XL"
+  ),
+  n_boot = 5000
+)
+```
+
+```{r}
+#| label: tbl-llm-baseline
+#| tbl-cap: "Death count extraction performance: large language models."
+
+make_baseline_gt(
+  metrics_df  = metrics_llms,
+  pvals_df    = boot_baseline_llms,
+  model_order = c("conflibert", "llama3_8b", "mistral_7b",
+                  "mixtral_8x7b", "gpt4o_mini"),
+  col_labels  = c(
+    conflibert   = "ConfliBERT",
+    llama3_8b    = "Llama-3.1-8B",
+    mistral_7b   = "Mistral-7B",
+    mixtral_8x7b = "Mixtral-8x7B",
+    gpt4o_mini   = "GPT-4o-mini"
+  ),
+  n_boot = 5000
+)
+```
+
+## Bin-Level Performance
+
+[Figures @fig-heatmap-seq2seq and @fig-heatmap-llms decompose performance by death count bin, revealing the systematic failure of all models on high-fatality events.]
+
+```{r}
+#| label: fig-heatmap-combined
+#| fig-cap: "Exact match (%) by death count bin. Seq2seq models (top) and LLMs (bottom), each ordered by overall MAE (best at top). ConfliBERT-Poisson appears in both panels as a reference baseline."
+#| fig-width: 7
+#| fig-height: 8
+
+make_combined_heatmap(
+  seq2seq_df = bin_seq2seq,
+  llm_df     = bin_llms
+)
+```
+
+## Rare-Bin Improvement Strategies
+
+### Seq2Seq Training-Side Interventions
+
+[Table @tbl-rarebin-seq2seq reports results for five training-side interventions applied to Flan-T5-Large. Strategies are labeled R1--R5 following the notation introduced in Section XX.]
+
+```{r}
+#| label: tbl-rarebin-seq2seq
+#| tbl-cap: "Seq2seq rare-bin intervention results (Flan-T5-Large base)."
+
+make_rare_bin_gt(
+  metrics_df     = metrics_rarebin_seq2seq,
+  pvals_df       = boot_rarebin_seq2seq,
+  strategy_order = c("S0", "S1", "S2", "S3", "S4", "S5", "T5-XL"),
+  col_labels     = c(
+    S0         = "Baseline",
+    S1         = "Weighted",
+    S2         = "Loss Wt.",
+    S3         = "Targeted",
+    S4         = "Back-transl.",
+    S5         = "Paraphrase",
+    "T5-XL"    = "T5-XL"
+  ),
+  n_boot = 5000
+)
+```
+
+### LLM Prompt Engineering Interventions
+
+[Table @tbl-rarebin-llms reports results for four prompt engineering strategies applied to Llama-3.1-8B.]
+
+```{r}
+#| label: tbl-rarebin-llms
+#| tbl-cap: "LLM prompt engineering results (Llama-3.1-8B base)."
+
+make_rare_bin_gt(
+  metrics_df     = metrics_rarebin_llms,
+  pvals_df       = boot_rarebin_llms,
+  strategy_order = c("L0", "L1", "L2", "L3", "L4", "GPT-L0"),
+  col_labels     = c(
+    L0         = "Baseline",
+    L1         = "Protocol",
+    L2         = "Bin-shot",
+    L3         = "Hard-shot",
+    L4         = "Combined",
+    "GPT-L0"   = "GPT-4o-mini"
+  ),
+  n_boot = 5000
+)
+```
+
+# Discussion
+
+[Discussion text to be written.]
+
+```{=tex}
+\newpage
+```
+
+# Appendix
+
+```{=tex}
+\newpage
+```
+
+# References
+
+```{=tex}
+\setlength{\parindent}{-0.2in}
+\setlength{\leftskip}{0.2in}
+\setlength{\parskip}{8pt}
+\noindent
+```
+
