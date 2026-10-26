@@ -9,8 +9,8 @@ Read in the data and the fuzzy matching library.
 library(readr)
 
 # Read in the data
-satp_df <- read_csv("data/satp_clean.csv")
-shrug_df <- read_csv("data/shrid_loc_names.csv") 
+satp_df <- read_csv("../data/satp_clean.csv")
+shrug_df <- read_csv("../data/shrid_loc_names.csv") 
 ```
 
 Clean the data for use with `fuzzyjoin`.

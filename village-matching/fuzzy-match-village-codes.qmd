@@ -1,0 +1,222 @@
+---
+title: "Fuzzy Match Villages"
+format: html
+---
+
+Read in and wrangle the data.
+
+```{r}
+library(readr)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(janitor)
+
+# SATP data
+satp_village_df <- read_csv("../data/satp_clean.csv") |>
+  mutate(across(state:constituency, str_to_lower)) |>
+  rename(
+    town_village = village_name,
+    sub_district = block
+    ) |>
+  drop_na(town_village) |>
+  mutate(state = case_when(
+    state == "kerela" ~ "kerala",
+    TRUE ~ state
+  ))
+
+# Village names and identifiers
+village_names_df <- read_csv("data-large/villagenamesdataset.csv") |>
+  clean_names() |>
+  mutate(across(!village_code, str_to_lower))
+```
+
+Try to fuzzy match the village names in satp_df with the village names in villages_df.
+
+```{r}
+# join_test <- satp_df |>
+#   stringdist_left_join(villages_df, by = "village_name", max_dist = 2) |>
+#   select(village_name.x, village_name.y, distance) #|>
+#   #filter(distance < 2)
+```
+
+Does not work. Crashes because data frames are too big. 
+
+Try looping through states and doing one state at a time.
+
+```{r}
+library(purrr)
+library(fuzzyjoin)
+library(dplyr)
+library(stringdist)
+
+# Create a list of unique states from satp_village_df
+states <- unique(satp_village_df$state)
+
+# Function to process a chunk of data for a state
+process_state_chunk <- function(state, chunk, names_state_subset) {
+  fuzzy_matches <- stringdist_left_join(chunk,
+                                        names_state_subset,
+                                        by = c("district", "town_village"),
+                                        max_dist = 1,  
+                                        method = "lv")
+  
+  # Process each incident_number to find the best match within the chunk
+  incident_results <- fuzzy_matches |>
+    group_by(incident_number) |>
+    slice_min(stringdist(district.x, district.y, method = "jw") + 
+              stringdist(town_village.x, town_village.y, method = "jw"), 
+              with_ties = FALSE) |>
+    ungroup()
+  
+  return(incident_results)
+}
+
+# Function to process an entire state
+process_state <- function(state) {
+  cat("Processing state:", state, "\n")
+  
+  satp_state_subset <- satp_village_df |> filter(state == tolower(!!state))
+  names_state_subset <- village_names_df |> filter(state == tolower(!!state))
+  
+  chunk_size <- 100
+  num_chunks <- ceiling(nrow(satp_state_subset) / chunk_size)
+  
+  cat("Number of rows for", state, ":", nrow(satp_state_subset), "\n")
+  cat("Number of rows in village_names for", state, ":", nrow(names_state_subset), "\n")
+  cat("Number of chunks for", state, ":", num_chunks, "\n")
+  
+  state_results <- map(1:num_chunks, function(i) {
+    start_idx <- (i - 1) * chunk_size + 1
+    end_idx <- min(i * chunk_size, nrow(satp_state_subset))
+    chunk <- satp_state_subset[start_idx:end_idx, ]
+    
+    cat("Processing chunk", i, "of", num_chunks, "for state", state, "\n")
+    chunk_result <- process_state_chunk(state, chunk, names_state_subset)
+    return(chunk_result)
+  })
+  
+  state_result <- bind_rows(state_results)
+  cat("Completed processing for state:", state, "\n")
+  return(state_result)
+}
+
+# Main processing function
+process_all_states <- function(states) {
+  cat("Starting to process all states\n")
+  
+  # Diagnostic: Print row counts by state
+  state_counts <- satp_village_df |>
+    group_by(state) |>
+    summarise(count = n()) |>
+    arrange(desc(count))
+  
+  cat("Row counts by state:\n")
+  print(state_counts)
+  
+  state_results <- map(states, safely(process_state))
+  
+  cat("Finished processing all states\n")
+  
+  successful_results <- map(state_results, "result")
+  errors <- map(state_results, "error")
+  
+  states_with_errors <- names(errors[!sapply(errors, is.null)])
+  if (length(states_with_errors) > 0) {
+    cat("States with errors:", paste(states_with_errors, collapse = ", "), "\n")
+  }
+  
+  final_df <- bind_rows(successful_results) |>
+  relocate(incident_number, state.x, state.y, district.x, district.y, sub_district.x, sub_district.y, town_village.x, town_village.y, village_code)
+
+  
+  # Count and report duplicates
+  duplicate_counts <- final_df |>
+    group_by(incident_number) |>
+    summarise(count = n()) |>
+    filter(count > 1)
+  
+  cat("Number of incident numbers with duplicates:", nrow(duplicate_counts), "\n")
+  cat("Total number of duplicate entries:", sum(duplicate_counts$count) - nrow(duplicate_counts), "\n")
+  
+  # Report on the distribution of duplicates
+  duplicate_distribution <- duplicate_counts |>
+    group_by(count) |>
+    summarise(frequency = n()) |>
+    arrange(desc(count))
+  
+  cat("\nDistribution of duplicates:\n")
+  print(duplicate_distribution)
+  
+  cat("\nNumber of rows in final_df:", nrow(final_df), "\n")
+  return(final_df)
+}
+
+# Run the processing
+final_df <- process_all_states(states)
+```
+
+Calculate number of unmatched cases
+
+```{r}
+# Count total number of cases
+total_cases <- nrow(satp_village_df)
+
+# Count number of unmatched cases (either village or district)
+unmatched_cases <- final_df |> 
+  filter(is.na(town_village.y) | is.na(district.y)) |> 
+  nrow()
+
+# Calculate the percentage of matched cases
+percent_matched <- (1 - (unmatched_cases / total_cases)) * 100
+
+
+cat("Total cases:", total_cases, "\n")
+cat("Unmatched cases (village or district):", unmatched_cases, "\n")
+cat("Percentage of cases matched:", percent_matched, "%\n")
+
+# Check for districts in satp_village_df that never had any match
+unmatched_districts <- satp_village_df |> 
+  filter(!district %in% final_df$district.x) |> 
+  distinct(district)
+
+cat("Districts with no matches:\n")
+print(unmatched_districts)
+```
+
+| JW Level | Percentage of Cases Matched |
+|----------|-----------------------------|
+| 0.1      | 40.02%                      |
+| 0.2      | 67.47%                      |
+| 0.3      | 80.49%                      |
+| 0.4      | 99.24%                      |
+
+| LV Level | Percentage of Cases Matched |
+|----------|-----------------------------|
+| 0        | 23.68%                      |
+| 1        | 41.11%                      |
+| 2        |                       |
+| 3        |                       |
+| 4        |                       |
+| 5        |                       |
+
+Save the data frame
+
+```{r}
+write_csv(final_df, "data-large/fmv_lv1.csv")
+```
+
+## Notes
+
+Query: what is the ground truth for determining how good these matches 
+are? Could be the basis of an article.
+  - 1200 or so randomly selected cases
+  - matched by hand to official government list
+  - what kinds of biases do we see, if any (regional?)
+  - what methods of matching produce the best results? 
+
+Next steps: 
+- Try Levenshtein distance (lv) instead of Jaro-Winkler (jw)
+- Try a sequetional approach where you first merge by district and then once you have the district names right, try matching on villages by looping through the districts...
+- Try Gemma
+- Try BERT

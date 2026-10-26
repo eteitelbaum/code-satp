@@ -1,0 +1,149 @@
+---
+title: "Collapse Data by Blocks"
+format: html
+---
+
+## Block level data
+
+Load block polygons and SATP data as sf objects.
+
+```{r}
+library(sf)
+library(tidyr)
+library(readr)
+
+# Read in the data
+satp_df <- read_csv("../data/satp_clean.csv")
+
+# Reading in SHRUG block polygons
+block_data <- st_read("data-large/shrug-pc11subdist-poly-gpkg/subdistrict.gpkg")
+
+# Convert SATP data to an sf object 
+event_sf <- satp_df |>
+    drop_na(longitude, latitude) |> # Drop rows with missing coordinates
+    st_as_sf(coords = c("longitude", "latitude"), 
+             crs = st_crs(block_data))
+```
+
+Check coordinate systems of the two data frames.
+
+```{r}
+st_crs(event_sf)
+st_crs(block_data)
+```
+
+Check for valid geometries.
+
+```{r}
+all(st_is_valid(event_sf))
+all(st_is_valid(block_data))
+```
+
+Check for spatial overlap.
+
+```{r}
+plot(st_geometry(block_data))
+plot(st_geometry(event_sf), add = TRUE, col = "red")
+```
+
+Do a spatial join of block boundaries and geocoded events.
+
+```{r}
+library(dplyr)
+
+# Perform the spatial join: this will add polygon attributes to the event data
+events_with_polygons <- st_join(event_sf, block_data, join = st_within) |>
+  relocate(geometry:subdistrict_name, .after = village_name) |>
+  relocate(subdistrict_name, .after = block) |>
+    relocate(constituency, .after = subdistrict_name)  
+
+# Check the result
+glimpse(events_with_polygons)
+```
+
+
+Aggregate events by polygon.
+
+```{r}
+event_counts <- events_with_polygons |>
+  group_by(village_id) |>  
+  summarize(event_count = n())
+```
+
+Merge back in with polygon data and visualize 
+
+```{r}
+polygons_with_counts <- left_join(polygons, event_counts, by = "village_id")
+
+ggplot() +
+  geom_sf(data = polygons_with_counts, aes(fill = event_count), color = "black") +
+  scale_fill_viridis_c() +
+  labs(title = "Event Counts per Polygon",
+       fill = "Event Count",
+       x = "Longitude",
+       y = "Latitude")
+```
+
+Take the sum of events in the polygon.
+
+```{r}
+# Replace 'village_id' with your polygon identifier column
+# Replace 'event_value' with the column you want to sum up
+aggregated_data <- events_with_polygons %>%
+  group_by(village_id) %>%
+  summarize(total_value = sum(event_value, na.rm = TRUE))
+
+# Merge the aggregated sums back into the polygon data
+polygons_with_sums <- left_join(polygons, aggregated_data, by = "village_id")
+```
+
+## Additional stuff
+
+Map the polygons (integrated with gpkg data below).
+
+```{r}
+library(sf)
+library(rmapshaper)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+
+# Split the data into smaller chunks
+chunks <- split(dbf_data, dbf_data$pc11_s_id)  # Example: split by state
+
+# Simplify each chunk
+simplified_chunks <- lapply(chunks, function(chunk) {
+  ms_simplify(chunk, keep = 0.05, keep_shapes = TRUE)
+})
+
+# Combine the simplified chunks back into a single object
+simplified_data <- do.call(rbind, simplified_chunks)
+
+# Plot the simplified data
+ggplot() +
+  geom_sf(data = simplified_data) +
+  theme_map()
+```
+
+Try gpkg file for villages instead of shapefile.
+
+```{r}
+# library(sf)
+# 
+# gpkg_village_data <- st_read("data-large/shrug-pc11-village-poly-gpkg/village.gpkg")
+```
+
+
+```{r}
+## If you want to do this, you might have to use ms_simplify() to simplify the polygons
+
+# Plotting the data
+ggplot() +
+  geom_sf(data = gpkg_data) +
+  theme_map()
+```
+
+
+
+
+
