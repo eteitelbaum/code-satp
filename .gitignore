@@ -8,4 +8,12 @@ results.DS_Store
 literature/
 venv/
 .env
-notes/
+
+# Notes are symlinks into the private project-notes repo (no trailing slash: must match symlinks)
+/notes
+/papers/classification/notes
+/papers/death-counts/notes
+/papers/location-extraction/notes
+
+# Large local data (gitignored, backed up with ~/Documents)
+/village-matching/data-large
