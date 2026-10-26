@@ -1,0 +1,11 @@
+strategy,pin_type,n,human_text_to_pin_median_km,model_text_to_pin_median_km,model_text_to_pin_within_10km_pct,model_text_to_human_text_median_km
+comma_delimited,All,340,18.8,19,37,0
+comma_delimited,Same name elsewhere,32,25,25,34,0
+comma_delimited,Shared pin,111,28.6,25,19,0
+comma_delimited,Unverified,98,15.1,14.1,45,0
+comma_delimited,Verified,99,2.8,9.7,52,0
+village_only,All,238,42,50.4,32,0
+village_only,Same name elsewhere,26,159.4,139.8,15,0
+village_only,Shared pin,77,97.6,108.6,12,0
+village_only,Unverified,46,41.9,41.9,28,0
+village_only,Verified,89,0.7,1,57,0

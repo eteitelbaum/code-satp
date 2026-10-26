@@ -1,0 +1,4 @@
+- source: presentation.qmd
+  quarto-pub:
+    - id: e1d11a6b-3f47-428d-bf6a-a8377d9214a2
+      url: https://eteitelbaum.quarto.pub/code-satp-presi

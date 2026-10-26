@@ -1,0 +1,47 @@
+lat,lon,district,pin_n_incidents,pin_n_villages,example_villages,nearest_place,nearest_place_km
+18.524351,80.837227,Bijapur,164,91,Matda; Patliguda; Bhopalpattnam; Tarrem; Dalmer; Gucchakonta,Puskunta,1.7
+17.945263,81.413078,Sukma,114,45,Kottapal; Chintagufa; Lakhapal; Tongpal; Gondpalli; Tokanpalli,Kannayagudem,2.3
+18.0908,81.7514,Malkangiri,93,44,Supalu; Keriaguda; MV-126; Malavaram; Kalimela; Peda Tekguda,Ambaguda,0.8
+19.032015,81.013,Bijapur,63,28,Aramangi; Kondru; Bodli; Ader; Bandepara; Rani Bodli,Dongarayupadu,4.6
+18.810951,80.91819,Bijapur,68,24,Cherpal; Pidiya; Bijapur; Emargunda; Kosnar; Chintanpalli,Karenar,1.8
+18.421059,81.556801,Sukma,43,20,Pedda Jojer; Kondare; Chingavaram; Madiyaras Korra; Gadgad; Korra,Chichod,1.5
+19.5988,80.2269,Gadchiroli,42,20,Punnoor; Etapalli; Kamke; Gundam; Pusukapalli; Parpalguda,Itapalli,0.3
+20.005707,80.902107,Kanker,33,18,Karremarka; Gudabeda and Nichebeda villages; Badgaon; Lohari; Sangam; Tiralgarh,Katabans,1.9
+18.8769,83.1689,Koraput,77,17,Odiapentha; Bargi; Narayanpatna; Dumshil; Dumsil; Dumasil,Narayanapatnam,0.2
+18.7977,80.8129,Dantewada,28,16,Bhairamgarh; Timarpur; Kurusnar; Kotram; Pallevaya; Phuladi,Bijapur,0.5
+19.54244,81.71521,Kondagaon,31,16,Maalnar; Totar; Padeli; Kokodi; Joba; Mulnar,Rajagaon,5.7
+19.7196,81.2472,Narayanpur,25,16,Madhonar; Edkamar; Anjarel; Kandhari; Narayanpur; Bharaghati,Narainpur,0.3
+17.8092,81.3831,Dantewada,26,15,Narsampuram; Konta; Misiguda; Golapalli; Kondapara; Pidmal,Konta,0.6
+18.742224,81.581573,Dantewada,21,15,Katekalyan; Hirma para; Parcheli; Bhusaras; Padwaras; Chhote Dongar,Pittipara,1
+19.4134,80.0059,Gadchiroli,17,15,Nandigaon; Jimulgatta; Dechlipetha; Dechalipetha; Nimmalgudam; Pattigaon,Ahiri,0.2
+18.5435,82.223,Malkangiri,21,13,Kudumulguma; Salim; Kamarpalli; Mahupadar; Temurpally; Kartanpalli,Pujariguda,0.7
+18.604963,81.346817,Dantewada,32,13,Rewali; Sameli; Aranpur; Kalepal; Korandul; Tikanpal,Kalepal,2.5
+19.9567,81.1639,Kanker,32,13,Sarhandi Sihari; Mankapal; Koilibeda; Kadgaon; Panidobri; Tadoki,Kolur,5.4
+22.454666666666665,86.99791666666667,West Midnapore,51,13,Jhargram; Dibibaksol; Jhatira; Tatai; Khaerboni; Chandsora,Jhargram,0.3
+18.9333,83.2573,Koraput,18,12,Tolopalesu; Kandho Tikarapada; Sanpalmanda; Bandhugaon; Kattulapeta; Sorupali,Bandugam,0.3
+20.0369,80.6253,Kanker,27,12,Pakhanjur; Pakhanjoor; Erikbuta; Pakenjur; Bande; Matenga,Pakhanjur,0.7
+20.073547,81.185493,Kanker,25,12,Bhanupratappur; Temrupani; Kadhaikhodra; Kiskodo; Mulle; Amagaon,Nawagaon,1
+18.1641,81.5432,Malkangiri,23,11,MV 79; Malkangiri Village-24; Peta; Podia; Laxmanguda; Tandabai,Podia,1.2
+19.9037,84.1303,Kandhamal,21,11,Bhramarbari; Daringibadi; Minjapanka; Godapakali; Jingiriguda; Daringbadi,Daringbarhi,0.7
+18.0778,81.927,Malkangiri,22,10,Chitrakonda; Andrahal; Ambilabeda; Dhuliput; Alampaka; Simidipadar,Dukkilanka,0.9
+19.652161,81.352318,Narayanpur,21,10,Botha; Rainar; Temrugaon; Kongera; Dhanora; Edka,Binur,8.1
+22.587027777777777,87.05247222222222,West Midnapore,26,10,Lalgarh; Kolkata; Nimal; Pirrakhuli; Bhulageria; Mahuatola,Lalgarh,0.3
+19.5959,81.6638,Kondagaon,13,9,Hadeli; Kondagaon; Peedhapal; Masuri; Badagai; Amagaon,Kondagaon,0.6
+20.2732,80.3074,Gadchiroli,20,9,Dhanora; Ghodezhari; Tavitola; Belgaon; Ubapli; Mumgaon,Dhanora,0.4
+18.7511,82.4333,Koraput,16,8,Kaliatola; Haldikund; Tentuligumma; Boipariguda; Baipariguda; Bhatiguda,Boipariguda,0.2
+18.85125,81.34063,Dantewada,23,8,Metapal; Bhansi; Bade Kameli; Murki; Kawadgaon; Bade Satti,Kumharras,1.6
+18.90707,81.864777,Bastar,20,8,"Partha, Darbha; Nekhavaya; Kaknar; Chandameta; Kukanar; Bukrawada",Tiratgarh,1.1
+19.4148,80.5897,Gadchiroli,16,8,Tophar; Laheri; Nalgonda forests; Bhamragarh; Murgel; Bhamragad,Bhamragarh,0.6
+21.888918,84.779533,Sundargarh,15,8,Nuagaon-Raidihi; Pattasahi; Bonai; Rourkela; Jharbeda; Mohulpada,Bargaon,1.8
+18.1548,81.5087,Sukma,21,7,Dornapal; Diwarpali; Burkapal; Keralapal; Misma; Palamdagu,Dornapal,0
+18.3436,81.8825,Malkangiri,17,7,Talkonda; MV 81; Kanhagada; Namiaguda; Malkangiri; Tandimetal,Sindhiguda,2.3
+18.378,82.1782,Malkangiri,12,7,Ralegada; Rollagedda; Maribeda; Kudumulugumma; Kudumuluguma; Dabbaguda,Kudumulagumma,0.3
+20.3282,80.476,Gadchiroli,10,7,Pushtola; Fulbodi Gatta; Dhanora; Murumgaon; Gurrekasa; Jhari,Muramgaon,0.5
+22.586416666666665,86.473,East Singhbhum,20,7,Maluki; Ghatshila; Machh Bhandar; Mudakati; Bhawnradih; Ghatsila,Ghatsila,0.4
+18.595919,81.766701,Dantewada,10,6,Rokel; Tumakpal; Raja Bangla; Padarpara; Chindgarh; Nayanar,Lakkaras,1.9
+19.046856,81.35025,Dantewada,9,6,Hitameta; Geedam; Munder; Bangapal; Gumda; Barsoor,Pedda Karli,5.6
+19.40888,81.119583,Narayanpur,11,6,Kundla; Becha; Irpanar; Orchha; Kumnar; Tuspal,Hoinar,8.2
+19.59268189,83.8711,Rayagada,15,6,Gadargudi; Chandrapur; Pukura; Kalipeta; Telarai; Galamguda,Chichchupanga,0.4
+21.3378,85.791,Kendujhar,11,6,Sanashialimal; Remal; Harichandanpur; Khajuria Pancham; Baraigoda; Rebana,Harichandanpur,0.5
+22.45658333333333,86.99791666666667,West Midnapore,23,6,Jhargram; Guimera; Koimasoli; Bhowadi; Orbonda; Lalitashole,Jhargram,0.4
+22.63636111111111,86.76383333333334,West Midnapore,13,6,Chirugeria; Kumirkata; Chota Kalsi Bhanga; Dhosra; Belpahari; Tarafena,Belpahari,0.5

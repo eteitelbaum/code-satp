@@ -242,7 +242,7 @@ fmt_pct_cell <- function(value, decimals = 1, dagger) {
 #' @param title       Table title string.
 #' @param n_boot      Number of bootstrap reps (for subtitle).
 make_baseline_gt <- function(metrics_df, pvals_df, model_order, col_labels, title = NULL,
-                             n_boot = 5000) {
+                             sig_fill = NULL, n_boot = 5000) {
   metric_ids    <- c("mae", "rmse", "within_1", "within_2", "nonzero_mae")
   metric_labels <- c("MAE", "RMSE", "Within-1", "Within-2", "Nonzero MAE")
   lower_better  <- c(TRUE, TRUE, FALSE, FALSE, TRUE)
@@ -311,8 +311,9 @@ make_baseline_gt <- function(metrics_df, pvals_df, model_order, col_labels, titl
       pt_ref   <- metrics_df |> dplyr::filter(model == reference_id) |> dplyr::pull(!!sym(mid))
       better   <- if (lower_better[mi]) pt_model < pt_ref else pt_model > pt_ref
       if (!is.na(p_base) && p_base < ALPHA && better) {
+        highlight <- if (is.null(sig_fill)) cell_text(weight = "bold") else cell_text(weight = "bold", color = sig_fill)
         tbl <- tbl |> tab_style(
-          style     = cell_text(weight = "bold"),
+          style     = highlight,
           locations = cells_body(columns = !!sym(mod), rows = mi)
         )
       }
@@ -331,7 +332,7 @@ make_baseline_gt <- function(metrics_df, pvals_df, model_order, col_labels, titl
 #' @param title       Table title string.
 #' @param n_boot      Number of bootstrap reps.
 make_rare_bin_gt <- function(metrics_df, pvals_df, strategy_order, col_labels, title = NULL,
-                             n_boot = 5000) {
+                             sig_fill = NULL, n_boot = 5000) {
   metric_ids    <- c("overall_mae", "nonzero_mae", "bin35_mae",
                      "bin35_exact", "bin6_mae", "bin6_exact")
   metric_labels <- c("MAE", "Nonzero MAE",
@@ -402,8 +403,9 @@ make_rare_bin_gt <- function(metrics_df, pvals_df, strategy_order, col_labels, t
       pt_ref   <- metrics_df |> dplyr::filter(strategy == baseline_id) |> dplyr::pull(!!sym(mid))
       better   <- if (lower_better[mi]) pt_model < pt_ref else pt_model > pt_ref
       if (!is.na(p_base) && p_base < ALPHA && better) {
+        highlight <- if (is.null(sig_fill)) cell_text(weight = "bold") else cell_text(weight = "bold", color = sig_fill)
         tbl <- tbl |> tab_style(
-          style     = cell_text(weight = "bold"),
+          style     = highlight,
           locations = cells_body(columns = !!sym(sid), rows = mi)
         )
       }

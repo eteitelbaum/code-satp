@@ -1,0 +1,523 @@
+---
+title: "From Narratives to Numbers"
+subtitle: "Evaluating Automated Fatality Count Extraction for Conflict Event Data"
+author:
+  - name: Emmanuel Teitelbaum
+    affiliation: George Washington University
+date: April 8, 2026
+date-format: long
+footer: "[github.com/eteitelbaum/code-satp](https://github.com/eteitelbaum/code-satp)"
+logo: images/esia-logo.png
+format:
+  revealjs:
+    theme: [simple, light-gw.scss]
+    transition: fade
+    slide-number: true
+    chalkboard: true
+execute:
+  echo: false
+  message: false
+  warning: false
+params:
+  reps: 5000
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(readr)
+library(here)
+library(patchwork)
+library(scales)
+library(gt)
+library(jsonlite)
+library(tidymodels)
+
+here::i_am("presentation.qmd")
+
+# Paper data lives two levels up in papers/death-counts
+paper_dir <- normalizePath(file.path(here(), "..", "..", "papers", "death-counts"))
+
+# Load custom table and heatmap functions
+source(file.path(paper_dir, "data-viz/table_functions.R"))
+source(file.path(paper_dir, "data-viz/heatmap_functions.R"))
+
+# Pre-computed bootstrap p-values
+boot_baseline_seq2seq <- read_csv(
+  file.path(paper_dir, "results/bootstrap_baseline_seq2seq.csv"),
+  show_col_types = FALSE)
+boot_baseline_llms <- read_csv(
+  file.path(paper_dir, "results/bootstrap_baseline_llms.csv"),
+  show_col_types = FALSE)
+boot_rarebin_seq2seq <- read_csv(
+  file.path(paper_dir, "results/bootstrap_rare_bin_seq2seq.csv"),
+  show_col_types = FALSE)
+boot_rarebin_llms <- read_csv(
+  file.path(paper_dir, "results/bootstrap_rare_bin_llms.csv"),
+  show_col_types = FALSE)
+
+# Point estimates
+metrics_seq2seq <- load_seq2seq_baseline_metrics(
+  file.path(paper_dir, "results/death-counts-seq2seq"))
+metrics_llms <- load_llm_baseline_metrics(
+  file.path(paper_dir, "results/death-counts-llms"))
+
+metrics_rarebin_seq2seq <- load_seq2seq_rare_bin_metrics(
+  results_dir = file.path(paper_dir, "results/death-counts-seq2seq"),
+  rarebin_dir = file.path(paper_dir, "results/rare-bins/seq2seq"))
+metrics_rarebin_llms <- load_llm_rare_bin_metrics(
+  llm_dir     = file.path(paper_dir, "results/death-counts-llms"),
+  rarebin_dir = file.path(paper_dir, "results/rare-bins/llms"))
+
+# Bin-level data for heatmaps
+bin_seq2seq <- load_seq2seq_bin_metrics(
+  file.path(paper_dir, "results/death-counts-seq2seq"))
+bin_llms <- load_llm_bin_metrics(
+  file.path(paper_dir, "results/death-counts-llms"))
+
+# Dark-theme ggplot base for slides
+theme_slide <- function() {
+  theme_minimal(base_size = 13) +
+    theme(
+      plot.background  = element_rect(fill = "#00264A", color = NA),
+      panel.background = element_rect(fill = "#00264A", color = NA),
+      axis.text        = element_text(color = "white"),
+      axis.title       = element_text(color = "white"),
+      panel.grid       = element_line(color = "#1a3a5c"),
+      panel.grid.major.x = element_blank(),
+      legend.background = element_rect(fill = "#00264A", color = NA),
+      legend.text      = element_text(color = "white"),
+      legend.title     = element_text(color = "white")
+    )
+}
+
+# Presentation gt styling — white background, larger font, right-aligned numerics
+style_for_presi <- function(tbl) {
+  tbl |>
+    tab_options(
+      table.font.size        = px(18),
+      data_row.padding       = px(6),
+      source_notes.font.size = px(11),
+      table.width            = pct(100)
+    ) |>
+    cols_align(align = "left",  columns = 1) |>
+    cols_align(align = "right", columns = -1)
+}
+```
+
+## Overview
+
+- Automated extraction has focused primarily on classification tasks (e.g. action type, perpetrator)
+- The extraction of counts is underexplored
+- I look at ~4,300 SATP incidents and two generative model families (**seq2seq** and **open source decoders**)
+- Generative models are strong overall but fail on rare high-count events
+- Some failures addressable through prompt engineering
+
+## Why Fatality Counts? {.smaller}
+
+- Define which events qualify as **armed conflict** (e.g. UCDP: ≥ 25 deaths for active conflict; ≥ 1000 battle deaths for a war)
+- Primary measure of **conflict severity**: escalation, cross-conflict comparison, trend analysis
+- Major datasets record counts, but automated extraction is noisy
+  - Dictionary-based methods tend to overcount
+  - Span-based tend to undercount
+  - LLM prompting can be unstable in that it shifts with query formulation 
+
+## Why Open Source Models? {.smaller}
+
+**Reproducibility** — whereas API-based models change silently, a pinned HuggingFace checkpoint is fully reproducible and shareable
+
+**Data privacy** — routing sensitive information through a commercial API raises IRB and data sovereignty concerns (survey/interview data)
+
+**Cost at scale** — trivial for one study, may matter more for initial filtering/triage in early stages of pipeline for larger projects
+
+**Environmental costs** - running a small local model may be more energy-efficient than routing millions of queries through a large data-center model
+
+<br>
+
+::: {.fragment}
+**Key takeaway:** An small open source model with the right prompting strategy can match or exceed proprietary models on rare high-fatality events
+:::
+
+## What Makes Counts Hard {.smaller}
+
+1. **Unbounded output space** — non-negative integer over a potentially large range, including values rare or unseen in training
+2. **Non-verbatim answers** — the correct count is often distributed across clauses, not a text span
+3. **Zero discrimination** — we want model to ignore injuries, arrests, escapes but return zero when no deaths mentioned
+4. **Actor attribution** — security forces vs. insurgents vs. civilians
+5. **Uncertainty and ranges** — "more than a dozen", "claimed", "bodies not recovered"
+
+## A Hard Case {.smaller}
+
+> Two CRPF personnel were killed and four others injured during an encounter with cadres of the CPI-Maoist in Giridih District. The encounter followed an ambush by the Maoists on a Police patrol in the Madhuban forest area and it reportedly continued for over 12 hours. Police sources claimed that over a dozen Maoists were killed, but their colleagues managed to take away the bodies. Maoists also triggered seven landmine blasts during the encounter.
+
+:::{.fragment}
+**Human coders: 14. Every model predicts 2.**
+:::
+
+:::{.fragment}
+The model must attribute deaths to actors, interpret "over a dozen", and ignore "four injured" and "seven landmine blasts" before deciding whether unrecovered bodies count at all.
+:::
+
+## Data: SATP Corpus {.smaller}
+
+- South Asia Terrorism Portal: Maoist insurgency in India, 2005–2016
+- Full corpus: ~9,919 incident summaries, hand-coded by research team
+- Filtered to armed assault and bombing events: **~4,300 incidents**
+- 60/20/20 stratified split by count bin; validation set used for prompt selection and early stopping; test set evaluated once per finalized strategy
+
+<br>
+
+:::{.fragment}
+**Single-conflict benefits:** Actor identification, language, and reporting conventions are fixed across every incident. When a model fails on a high-count case, we can more confidently attribute the error to count extraction as opposed to actor misidentification or inconsistent reporting.
+:::
+
+## The Distribution Problem
+
+```{r}
+#| label: fig-bin-dist
+#| fig-width: 6.5
+#| fig-height: 3.5
+
+corpus <- read_csv(
+  file.path(paper_dir, "results/death-counts-seq2seq/armed_assault_bombing.csv"),
+  show_col_types = FALSE
+)
+
+bin_labels <- c("0", "1", "2", "3–5", "6+")
+
+bin_dist <- corpus |>
+  mutate(bin = case_when(
+    total_fatalities == 0 ~ "0",
+    total_fatalities == 1 ~ "1",
+    total_fatalities == 2 ~ "2",
+    total_fatalities <= 5 ~ "3–5",
+    TRUE                  ~ "6+"
+  )) |>
+  mutate(bin = factor(bin, levels = bin_labels)) |>
+  count(bin) |>
+  mutate(pct = n / sum(n) * 100)
+
+ggplot(bin_dist, aes(x = bin, y = pct)) +
+  geom_col(fill = "#5B9BD5", alpha = 0.95) +
+  geom_text(aes(label = sprintf("%.1f%%", pct)),
+            vjust = -0.4, size = 4, color = "black") +
+  scale_y_continuous(limits = c(0, 45),
+                     labels = label_percent(scale = 1)) +
+  labs(x = "Death count bin", y = "Percent of incidents",
+       caption = "75% of incidents record zero or one death. Only 4.4% record six or more.") +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.background    = element_rect(fill = "white", color = NA),
+    panel.background   = element_rect(fill = "white", color = NA),
+    panel.grid         = element_line(color = "#e0e0e0"),
+    panel.grid.major.x = element_blank(),
+    plot.caption       = element_text(color = "#1a6fad", size = 10, hjust = 0)
+  )
+```
+
+A model trained on this distribution has little basis for predicting rare high-fatality events, and aggregate metrics will hide that failure.
+
+## Why Models Fail on High Counts {.smaller}
+
+::: {.fragment}
+**Lexical complexity** — bin 6+ narratives involve more actors, more clauses, and more hedging language ("claimed," "over a dozen," "bodies not recovered") 
+:::
+
+::: {.fragment}
+**Numeric reasoning** — high counts rarely appear as a single number, so they require aggregating deaths across multiple armed groups distributed across the narrative
+:::
+
+::: {.fragment}
+**Conservative bias** — models apply an implicitly discount claimed attacker deaths even when the coding protocol counts them
+:::
+
+::: {.fragment}
+**Skewed training distribution** — fine-tuning on a corpus where 75% of examples are zero or one death anchors the model's output prior toward low counts (sea2seq only)
+:::
+
+<br>
+
+::: {.fragment}
+*Some errors are also irreducible:* 4 cases where the true count is absent from the text (label errors, follow-up revisions) set a floor no model can reach.
+:::
+
+## Two-Track Design {.smaller}
+
+**Seq2seq fine-tuning**
+
+- Primary: **Flan-T5-Large** (770M parameters, instruction-tuned)
+- Ceiling: T5-XL-QLoRA (3B parameters, QLoRA fine-tuning)
+- Prompt: *"How many people were killed? Answer with only a number."*
+
+**LLM prompting** (no parameter updates)
+
+- Primary: **Llama-3.1-8B-Instruct**
+- Ceiling: GPT-4o-mini
+- Prompt: zero-shot JSON extraction baseline
+
+**Shared baseline:** ConfliBERT + Poisson regression head
+
+## Evaluation Framework {.smaller}
+
+**Aggregate metrics** (primary)
+
+- Mean absolute error (MAE), RMSE, within-1, within-2, nonzero MAE
+- Bootstrap significance vs. ConfliBERT-Poisson baseline (n = 5,000)
+
+**Bin-level decomposition** (diagnostic)
+
+- Exact match rates across five count bins: `0`, `1`, `2`, `3–5`, `6+`
+- Bins 0 and 1 account for 75% of test incidents — a model that fails on rarer bins can still look strong in aggregate
+
+The bin-level framework is the key methodological focus of the paper.
+
+## Baseline: Seq2seq Models {.smaller}
+
+```{r}
+#| label: tbl-seq2seq-baseline
+
+make_baseline_gt(
+  metrics_df  = metrics_seq2seq,
+  pvals_df    = boot_baseline_seq2seq,
+  model_order = c("conflibert", "t5_base", "t5_large",
+                  "indicbart", "mt5", "nt5", "t5_xl"),
+  col_labels  = c(
+    conflibert = "ConfliBERT",
+    t5_base    = "T5-Base",
+    t5_large   = "T5-Large",
+    indicbart  = "IndicBART",
+    mt5        = "mT5-Base",
+    nt5        = "NT5-Small",
+    t5_xl      = "T5-XL"
+  ),
+  sig_fill = "#1a6fad",
+  n_boot = params$reps
+) |> style_for_presi()
+```
+
+<br>
+
+::: {.fragment}
+Flan-T5-Large significantly beats the baseline and is statistically indistinguishable from the ceiling. Model scale and instruction fine-tuning matter more than multilingual pretraining or numeric objectives.
+:::
+
+## Baseline: LLMs {.smaller}
+
+```{r}
+#| label: tbl-llm-baseline
+
+make_baseline_gt(
+  metrics_df  = metrics_llms,
+  pvals_df    = boot_baseline_llms,
+  model_order = c("conflibert", "llama3_8b", "mistral_7b",
+                  "mixtral_8x7b", "gpt4o_mini"),
+  col_labels  = c(
+    conflibert   = "ConfliBERT",
+    llama3_8b    = "Llama-3.1-8B",
+    mistral_7b   = "Mistral-7B",
+    mixtral_8x7b = "Mixtral-8x7B",
+    gpt4o_mini   = "GPT-4o-mini"
+  ),
+  sig_fill = "#1a6fad",
+  n_boot = params$reps
+) |> style_for_presi()
+```
+
+<br>
+
+::: {.fragment}
+GPT-4o-mini (MAE 0.133) and T5-XL-QLoRA (MAE 0.116) are broadly comparable at the ceiling and zero-shot prompting of a well-calibrated LLM is competitive with fine-tuning a 3B seq2seq model.
+:::
+
+## Bin-Level Performance 
+
+```{r}
+#| label: fig-heatmap
+#| fig-width: 7
+#| fig-height: 7.5
+
+make_combined_heatmap(
+  seq2seq_df = bin_seq2seq,
+  llm_df     = bin_llms
+)
+```
+
+## Bin-Level Performance {.smaller}
+
+Near-ceiling exact match on bins 0, 1, and 2, the 87% of incidents where models look great in aggregate
+
+<br>
+
+::: {.fragment}
+**Sharp drop on rare bins:**
+
+- Flan-T5-Large: 86.7% on `3–5`, **71.1% on `6+`** — miscoding roughly one in three high-fatality events
+- Open-source LLMs: 78.9% on `6+` (Llama, Mistral), 84.2% (Mixtral)
+- ConfliBERT: collapses to 10.7% on `3–5` and 28.9% on `6+`
+- Even the ceiling models reach only 84.2% on `6+`
+:::
+
+::: {.fragment}
+Bin 6+ contains only 38 test cases — each wrong prediction is a high-fatality event miscoded.
+:::
+
+## Seq2seq Interventions {.smaller}
+
+| Strategy | Approach |
+|---|---|
+| **Weighted sampling** | Upsample rare-bin examples within each epoch |
+| **Loss weighting** | Higher cross-entropy weight on rare-bin examples |
+| **Targeted oversampling** | Oversample examples matching specific failure patterns |
+| **Back-translation** | Paraphrase via Hindi/Urdu/Bengali pivot languages |
+| **T5 paraphrase** | Paraphrase using Flan-T5-Large directly |
+
+::: {.fragment}
+**Basic hypothesis**: If the failure is a data imbalance problem, these strategies should help; if it is a model capacity problem, they will not.
+:::
+
+## Seq2seq Results {.smaller}
+
+```{r}
+#| label: tbl-rarebin-seq2seq
+
+make_rare_bin_gt(
+  metrics_df     = metrics_rarebin_seq2seq,
+  pvals_df       = boot_rarebin_seq2seq,
+  strategy_order = c("S0", "S1", "S2", "S3", "S4", "S5", "T5-XL"),
+  col_labels     = c(
+    S0      = "Baseline",
+    S1      = "Weighted",
+    S2      = "Loss Wt.",
+    S3      = "Targeted",
+    S4      = "Back-transl.",
+    S5      = "Paraphrase",
+    "T5-XL" = "T5-XL"
+  ),
+  sig_fill = "#1a6fad",
+  n_boot = params$reps
+) |> style_for_presi()
+```
+
+::: {.fragment}
+Reweighting strategies **raise** overall MAE. They push toward higher predictions on ambiguous cases, which increases errors on common low-count events without improving rare bins. Back-translation improves bin `3–5` directionally **but nothing closes the `6+` gap**. T5-XL-QLoRA reaches 84.2% on `6+` without any intervention.
+:::
+
+## LLM Prompt Interventions {.smaller}
+
+Four prompting strategies applied to Llama-3.1-8B:
+
+| Strategy | Approach |
+|---|---|
+| **L1 Protocol** | Add one sentence: count all reported deaths, including claimed attacker casualties even if bodies not recovered |
+| **L2 Bin-balanced** | L1 + five demonstrations, one from each count bin |
+| **L3 Hard-case** | L1 + four demonstrations matching specific failure modes |
+| **L4 Combined** | L1 + all nine demonstrations |
+
+Hypothesis: examples show the model how to handle ambiguity; instructions alone describe it abstractly. Examples should outperform instructions.
+
+## LLM Results {.smaller}
+
+```{r}
+#| label: tbl-rarebin-llms
+
+make_rare_bin_gt(
+  metrics_df     = metrics_rarebin_llms,
+  pvals_df       = boot_rarebin_llms,
+  strategy_order = c("L0", "L1", "L2", "L3", "L4", "GPT-L0"),
+  col_labels     = c(
+    L0        = "Baseline",
+    L1        = "Protocol",
+    L2        = "Bin-shot",
+    L3        = "Hard-shot",
+    L4        = "Combined",
+    "GPT-L0"  = "GPT-4o-mini"
+  ),
+  sig_fill = "#1a6fad",
+  n_boot = params$reps
+) |> style_for_presi()
+```
+
+::: {.fragment}
+Protocol clarification alone **raises** MAE (0.235 → 0.318) and **lowers** bin `6+` exact match. The combined prompt reaches MAE 0.107 and bin `6+` exact match 89.5% — exceeding GPT-4o-mini on both metrics (0.133, 84.2%), though not significantly.
+:::
+
+## Examples vs. Instructions {.smaller}
+
+| Failure | Fixed by |
+|---|---|
+| **Lexical complexity** | Hard-case examples of complex narrative structures |
+| **Conservative bias** | Hard-case examples showing claimed casualties count |
+| **Numeric reasoning** | Hard-case examples of multi-group arithmetic |
+
+::: {.fragment}
+Instructions tell the model **what** to count. Hard-case examples show **how** to handle each failure type concretely. Without them, the L1 protocol instruction is applied too broadly.
+:::
+
+::: {.fragment}
+**This applies to any model** — even GPT-4 users will do better with targeted few-shot examples than with naive zero-shot prompting.
+:::
+
+
+## Broader Implications {.smaller}
+
+::: {.fragment}
+**Report bin-level performance** alongside aggregate error. Aggregate MAE on a skewed distribution is dominated by common low-count cases and can mask systematic failure on the events that matter most for conflict measurement.
+:::
+
+::: {.fragment}
+**Models have a default evidentiary standard** — closer to UCDP conservative coding than to ACLED-style "record as reported." That default is invisible in aggregate metrics and cannot be overridden by instruction alone. Researchers should use demonstrations from their own corpus to align the model with their coding protocol.
+:::
+
+::: {.fragment}
+**Training-side and prompt-side interventions are not interchangeable.** For seq2seq models, the `6+` gap is a capacity problem that reweighting cannot close. For LLMs, targeted few-shot examples substantially improve rare-bin performance without any parameter updates.
+:::
+
+## Practical Guidance {.smaller}
+
+**Which model?**
+
+- Flan-T5-Large: strong on the 95% of events with 0–5 deaths; limited on the high-fatality tail
+- Llama-3.1-8B + combined few-shot: best open-source option for rare-bin accuracy; no fine-tuning required; runs on modest local hardware; reproducible
+- GPT-4o-mini: simplest deployment; data leave your environment; not reproducible across time
+
+::: {.fragment}
+**Recommended workflow**
+
+Run the model across all events. Reserve manual inspection for predictions above a count threshold (say, ≥ 6). That set is small enough to review and the cost of error is highest there. Fully automated replacement of human coding is not yet warranted for high-fatality cases.
+::: 
+
+## Limitations 
+
+- Single conflict and single source (generalizability requires validation on additional corpora)
+- Bin `6+` contains only 38 test cases so that bin-level comparisons carry wider uncertainty than aggregate metrics
+- API model results are tied to specific versions; replication packages should pin model snapshots
+
+## Extensions
+
+- Per-side decomposition: security force, Maoist, and civilian deaths as separate extraction targets
+- Chain-of-thought prompting for multi-group enumeration cases
+- Same bin-level framework applied to other count variables, e.g. injuries, arrests, and surrenders
+
+## Thank You
+
+::: columns
+::: {.column width="55%"}
+**Emmanuel Teitelbaum**
+Associate Professor, Political Science
+George Washington University
+[ejt@gwu.edu](mailto:ejt@gwu.edu)
+
+<br>
+
+Code, data, and paper available at the repo below. Comments welcome.
+:::
+
+::: {.column width="45%"}
+{{< qrcode https://github.com/eteitelbaum/code-satp width=300 height=300 colorDark='#00264A' colorLight='#ffffff' >}}
+:::
+:::

@@ -1,0 +1,3 @@
+strategy,n,human_text_to_pin_median_km,model_text_to_pin_median_km,model_text_to_pin_within_10km_pct,model_text_to_human_text_median_km
+comma_delimited,81,2.8,7.7,54,0
+village_only,72,0.6,0.6,64,0

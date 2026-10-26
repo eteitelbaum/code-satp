@@ -1,0 +1,6 @@
+pin_type,n,human_text_to_pin_median_km,model_text_to_pin_median_km,model_text_to_pin_within_10km_pct,model_text_to_human_text_median_km
+Verified,99,2.8,9.7,52,0
+Same name elsewhere,32,25,25,34,0
+Unverified,98,15.1,14.1,45,0
+Shared pin,203,27.1,24.2,23,0
+No village coded,226,7.8,6.7,53,0

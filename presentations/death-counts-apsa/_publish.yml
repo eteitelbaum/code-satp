@@ -1,0 +1,4 @@
+- source: presentation.qmd
+  quarto-pub:
+    - id: 231a3f2c-1950-431e-a894-9d9f715ebb38
+      url: https://eteitelbaum.quarto.pub/from-narratives-to-numbers

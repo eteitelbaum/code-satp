@@ -1,0 +1,45 @@
+/*-- scss:defaults --*/
+
+$body-bg: #ffffff;
+$body-color: #00264A;
+$link-color: #0055A5;
+
+/*-- scss:rules --*/
+
+.reveal .slide blockquote {
+  border-left: 3px solid $text-muted;
+  padding-left: 0.5em;
+}
+
+.reveal .slide-logo {
+    height: 100px !important;
+    width: 100px !important;
+    max-width: unset !important;
+    max-height: unset !important;
+  }
+
+.reveal .footer {
+    color: #0055A5 !important;
+}
+
+b, strong {
+    color: #0055A5;
+}
+
+.reveal h1, .reveal h2, .reveal .slide-title {
+  color: #00264A !important;
+}
+
+// Add space after slide titles for h2
+.reveal h2 {
+  margin-bottom: 1em;
+}
+
+// Shrink title slide title and subtitle to fit on one line each
+.reveal .title {
+  font-size: 1.8em !important;
+}
+
+.reveal .subtitle {
+  font-size: 1.1em !important;
+}

@@ -241,8 +241,11 @@
 \IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
 \urlstyle{same}
 \hypersetup{
-  pdftitle={Extracting Event Counts and Locations from Conflict Reports},
+  pdftitle={From Narratives to Numbers},
   pdfauthor={Emmanuel Teitelbaum},
+  pdfkeywords={large language models, natural language
+processing, political violence, event coding, text classification, count
+data},
   colorlinks=true,
   linkcolor={Blue4},
   filecolor={Maroon},
@@ -253,9 +256,8 @@
 
 %% Main title %%
 
-\title{Extracting Event Counts and Locations from Conflict
-Reports\thanks{I am grateful to Mohiddin Bacha Shaik and Shiva Sharma
-for their excellent research assitance.}}
+\title{From Narratives to Numbers\thanks{I am grateful to Mohiddin Bacha
+Shaik and Shiva Sharma for their excellent research assistance.}}
 
 %% Subtitle %%
 
@@ -265,7 +267,8 @@ for their excellent research assitance.}}
   \apptocmd{\@title}{\par {\vskip 0.25em \large #1 \par}}{}{}
 }
 \makeatother
-\subtitle{Evidence from the South Asia Terrorism Portal}
+\subtitle{Evaluating Automated Fatality Count Extraction for Conflict
+Event Data}
 
 %% Author info %%
 
@@ -300,32 +303,36 @@ Research Meeting. \\ {\scriptsize Access the code, data, and analysis at
 
 \begin{abstract}
 \noindent            %eliminate indent in abstract
-This paper evaluates the performance of transformer models on the task
-of extracting death counts from conflict event narratives. Using
-hand-coded incident summaries from the South Asia Terrorism Portal on
-the Maoist insurgency in India, I compare fine-tuned
-sequence-to-sequence models and prompted large language models against a
-ConfliBERT-Poisson baseline. The distribution of death counts in the
-corpus is highly skewed, with most incidents concentrated in the lower
-count values and relatively few observations in the upper tail. I
-evaluate model performance using overall mean absolute error and a
-bin-level framework spanning \texttt{0}, \texttt{1}, \texttt{2},
-\texttt{3-5}, and \texttt{6+} deaths. The results show that generative
-models outperform the encoder baseline on aggregate measures, but that
-aggregate performance obscures weaker results on rare high-fatality
-cases. Training-side interventions on Flan-T5-Large yield limited
-improvement and do not close the gap on the highest fatality bin,
-whereas prompt-based interventions substantially improve Llama-3.1-8B.
-Few-shot prompting built around bin-balanced and hard-case examples
-raises exact match on the \texttt{6+} bin from 78.9 percent to 89.5
-percent, matching GPT-4o-mini. These findings indicate that automated
-death count extraction can support conflict research and that its
-evaluation should account for variation across the count distribution.
+Fatality counts are important outcomes in conflict studies. They
+determine which events qualify as armed conflict and provide the primary
+measure of severity, yet automated extraction of count fields has
+received little systematic evaluation. Using hand-coded incident
+summaries from the South Asia Terrorism Portal on the Maoist insurgency
+in India, I compare fine-tuned sequence-to-sequence models and prompted
+large language models against a ConfliBERT-Poisson baseline. The
+distribution of death counts in the corpus is highly skewed, with most
+incidents concentrated in the lower count values and relatively few
+observations in the upper tail. I evaluate model performance using
+overall mean absolute error and a bin-level framework spanning
+\texttt{0}, \texttt{1}, \texttt{2}, \texttt{3-5}, and \texttt{6+}
+deaths. The results show that generative models outperform the encoder
+baseline on aggregate measures, but that aggregate performance obscures
+weaker results on rare high-fatality cases. Training-side interventions
+on Flan-T5-Large yield limited improvement and do not close the gap on
+the highest fatality bin, whereas prompt-based interventions
+substantially improve Llama-3.1-8B. Few-shot prompting built around
+bin-balanced and hard-case examples raises exact match on the
+\texttt{6+} bin from 78.9 percent to 89.5 percent, matching GPT-4o-mini.
+Automated count extraction can reliably support conflict research on
+low-fatality incidents, but high-fatality cases warrant closer scrutiny.
 \end{abstract}
 
 \vspace{\baselineskip}
 
-
+\indent \keywords{%
+large language models, natural language processing, political
+violence, event coding, text classification, count data%
+}
 
 
 \vspace{0.25in}
@@ -357,6 +364,12 @@ information from conflict narratives (\citeproc{ref-hu2022}{Hu et al.
 2022}; \citeproc{ref-halterman2021}{Halterman et al. 2021}). Yet the
 extraction of fatality counts remains less well developed in the
 automation literature despite its importance for conflict measurement.
+Major conflict datasets apply fatality thresholds to determine which
+events qualify for inclusion and how they are classified. Fatality
+counts also provide the primary measure of conflict severity, used to
+track escalation, compare conflicts across time, and identify
+high-violence cases for closer analysis.
+
 Existing event datasets routinely record fatality counts, and automated
 systems sometimes attempt to extract them, but count fields have
 generally been treated as secondary outputs rather than as a research
@@ -372,21 +385,28 @@ where, and in what form, but much less evidence on how well current
 models recover the fatality information used to measure conflict
 severity.
 
-Fatality counts represent a distinct measurement problem because their
-distribution is highly skewed. In conflict event data, most observations
-are concentrated at the lower end of the count distribution, while
-high-fatality events are relatively uncommon. Under these conditions,
-aggregate performance metrics may obscure systematic error in the upper
-tail. This is consequential for conflict research because fatality
-counts are used to characterize variation in conflict severity and
-escalation. Recent evidence further suggests that naive large language
-model prompting for conflict fatality counts can be unstable and
-sensitive to query formulation, indicating a need for more systematic
-evaluation (\citeproc{ref-steinert2025}{Steinert and Kazenwadel 2025}).
+A central challenge in count extraction is that model performance is
+difficult to evaluate with standard aggregate measures. In conflict
+event data, most observations are concentrated at the lower end of the
+count distribution, while high-fatality events are relatively uncommon.
+For example, in the GTD, more than half of recorded attacks result in no
+fatalities, while fewer than one in ten claim more than five lives
+(\citeproc{ref-lafree2007}{LaFree and Dugan 2007}). Under these
+conditions, aggregate performance metrics may obscure systematic error
+in the upper tail. A model that performs well on average may still
+systematically underpredict the high-fatality incidents that define
+escalation, peaks, and turning points in the conflict record. Recent
+evidence further suggests that naive large language model prompting for
+conflict fatality counts can be unstable and sensitive to query
+formulation, indicating a need for more systematic evaluation
+(\citeproc{ref-steinert2025}{Steinert and Kazenwadel 2025}).
 
 This paper examines death count extraction using roughly 10,000
 hand-coded incident summaries from the South Asia Terrorism Portal on
-the Maoist insurgency in India. I compare two modeling approaches. The
+the Maoist insurgency in India. The single-conflict design controls for
+actor identification, source language, and reporting conventions, so
+variation in model performance can be attributed directly to the quality
+of count extraction. My analysis compares two modeling approaches. The
 first uses fine-tuned sequence-to-sequence models, with Flan-T5-Large as
 the primary model and T5-XL-QLoRA as an upper-bound comparison. The
 second uses prompted large language models, with Llama-3.1-8B as the
@@ -402,15 +422,24 @@ high-count cases.
 
 The results show that generative models outperform the encoder baseline
 on aggregate measures, while the bin-level analysis reveals sharper
-differences on rare high-fatality cases. Few-shot prompting
-substantially improves Llama-3.1-8B on the highest count bin, while
-training-side interventions on Flan-T5-Large yield more limited gains.
-The analysis indicates that automated extraction of count fields should
-not be evaluated with aggregate error alone, since models that appear
-broadly similar may differ substantially in the upper tail of the
-distribution. It also suggests that automated death count extraction can
-support conflict research, but that high-fatality cases remain the point
-at which closer scrutiny is required.
+differences on rare high-fatality cases. Training-side interventions on
+Flan-T5-Large do not close the gap on the highest count bin, pointing to
+a model capacity constraint rather than a data problem. Among the LLM
+prompting strategies, prompts that include worked examples substantially
+improve performance on the highest count bin, while clarifying the
+coding protocol alone may be counterproductive.
+
+The bin-level framework introduced here offers a more diagnostic
+alternative to aggregate metrics, and future work on count extraction
+should adopt it alongside overall error measures. With regard to model
+selection, the results suggest that fine-tuned seq2seq models and
+prompted LLMs are not interchangeable. Seq2seq models perform well
+across the bulk of incidents but are limited on the upper tail by
+training data sparsity, while few-shot prompting with bin-balanced and
+hard-case examples substantially improves LLM performance on
+high-fatality cases. Researchers who incorporate automated count
+extraction into their work can expect reliable performance on low-count
+events, but high-fatality predictions warrant manual review.
 
 \section{Count Extraction and the Rare-Event
 Problem}\label{count-extraction-and-the-rare-event-problem}
@@ -435,12 +464,12 @@ colleagues managed to take away the bodies. Maoists also triggered seven
 landmine blasts during the encounter.
 \end{quote}
 
-The passage does not yield a single unambiguous count. Two CRPF deaths
-are explicitly confirmed while ``over a dozen Maoists'' are claimed
-killed but their bodies were not recovered. A model, just like a human
-coder, must decide whether unconfirmed, unrecovered deaths count, and if
-so, how to interpret ``over a dozen'' as a point estimate. The answer
-requires the model to attribute the outcome to a group, handle
+\noindent The passage does not yield a single unambiguous count. Two
+CRPF deaths are explicitly confirmed while ``over a dozen Maoists'' are
+claimed killed but their bodies were not recovered. A model, just like a
+human coder, must decide whether unconfirmed, unrecovered deaths count,
+and if so, how to interpret ``over a dozen'' as a point estimate. The
+answer requires the model to attribute the outcome to a group, handle
 uncertainty, and aggregate counts across clauses, before it even
 encounters the competing numeric expressions ``four others injured'' and
 ``seven landmine blasts'' that it must discard. Meanwhile, the exclusion
@@ -1008,9 +1037,9 @@ on bin 6+, but this still represents miscoding death counts of about one
 in six events. The bin-level results of the other models invert the
 impression from the overall tables, where Flan-T5-Large appeared to hold
 a clear edge. Flan-T5-Large falls to 86.7\% exact match on bin 3-5 and
-71.1\% on bin 6+, miscoding roughly one in three high-fatality events,
-and for this bin every LLM outperforms it, with Llama-3.1-8B reaching
-78.9\% and Mixtral-8×7B matching the ceiling at 84.2\%. Meanwhile,
+71.1\% on bin 6+, miscoding roughly one in three high-fatality events.
+All three decoder LLMs outperform it on bin 6+, with Mistral-7B and
+Llama-3.1-8B each at 78.9\% and Mixtral-8×7B at 84.2\%. Meanwhile,
 ConfliBERT-Poisson collapses to 10.7\% on bin 3-5 and 28.9\% on bin 6+
 due to its dependence on representative examples in the training
 data.\footnote{Bin 6+ contains only 38 test observations, yielding
@@ -1067,10 +1096,10 @@ colleagues managed to take away the bodies. Maoists also triggered seven
 landmine blasts during the encounter. (true = 14, all models predict 2)
 \end{quote}
 
-The phrase ``managed to take away the bodies'' marks a recurring
-epistemic ambiguity in conflict reporting. The absence of bodies
-forecloses independent verification of security force claims and we
-cannot know whether the casualties were genuine, exaggerated or, as
+\noindent The phrase ``managed to take away the bodies'' marks a
+recurring epistemic ambiguity in conflict reporting. The absence of
+bodies forecloses independent verification of security force claims and
+we cannot know whether the casualties were genuine, exaggerated or, as
 documented in the Maoist context, reflective of ``fake encounters'' and
 misclassified civilian deaths (\citeproc{ref-humanrightswatch2008}{Human
 Rights Watch 2008}).\footnote{The total fatalities variable follows a
@@ -1102,12 +1131,12 @@ a forest of Dhanora in Gadchiroli District. (true = 7, Flan-T5-Large
 predicts 9)
 \end{quote}
 
-The LLMs handle these cases correctly, suggesting the failure reflects a
-capacity limitation rather than a fundamental difficulty with the task.
-Because the errors follow a consistent structural pattern, targeted
-training examples, oversampling, and data augmentation strategies that
-increase the model's exposure to multi-group enumeration cases may help
-to address them.
+\noindent The LLMs handle these cases correctly, suggesting the failure
+reflects a capacity limitation rather than a fundamental difficulty with
+the task. Because the errors follow a consistent structural pattern,
+targeted training examples, oversampling, and data augmentation
+strategies that increase the model's exposure to multi-group enumeration
+cases may help to address them.
 
 \section{Improving Performance on Rare
 Bins}\label{improving-performance-on-rare-bins}
@@ -1251,13 +1280,13 @@ Interventions}\label{llm-prompt-engineering-interventions}
 The baseline Llama-3.1-8B model miscodes roughly one in ten bin 3--5
 events and roughly one in five bin 6+ events. We evaluate four prompt
 engineering strategies designed to improve performance on these rare
-bins. One adds a protocol clarification to the system prompt,
-instructing the model to count claimed attacker casualties even when
-bodies were not recovered. Three vary the content and composition of
-few-shot demonstrations, progressively targeting the narrative
-structures most associated with high-count miscoding. GPT-4o-mini serves
-as the ceiling reference for the LLM track. The full text of the prompts
-is available in Appendix B.
+bins. \texttt{L1} adds a protocol clarification instructing the model to
+count claimed attacker casualties even when bodies were not recovered.
+\texttt{L2}, \texttt{L3}, and \texttt{L4} all retain that same
+clarification sentence and then add different few-shot demonstrations,
+allowing us to compare instruction alone to instruction-plus-examples.
+GPT-4o-mini serves as the ceiling reference for the LLM track. The full
+text of the prompts is available in Appendix B.
 
 \subsubsection{Intervention Strategies}\label{intervention-strategies-1}
 
@@ -1269,19 +1298,19 @@ including claimed attacker casualties even when bodies were not
 recovered. This directly encodes the maximalist counting protocol
 established in the data collection design.
 
-\textbf{Bin-balanced few-shot.} This strategy replaces the zero-shot
-baseline with five demonstrations sampled to cover the full range of
-death counts, including at least one example from each bin. The goal is
-to make the count range salient to the model before it reads the target
-narrative, without specifically targeting the failure patterns
-identified earlier.
+\textbf{Bin-balanced few-shot.} This strategy keeps the \texttt{L1}
+protocol clarification and adds five demonstrations sampled from the
+training set to cover the full range of death counts, including at least
+one example from each bin. The goal is to make the count range salient
+to the model before it reads the target narrative, without specifically
+targeting the failure patterns identified earlier.
 
-\textbf{Hard-case few-shot.} Rather than sampling for bin coverage, this
-strategy selects four demonstrations that exemplify the specific
-narrative structures driving miscoding in the baseline, including events
-where attacker casualties are described as claimed or inferred and
-events where deaths must be summed across multiple armed groups. The
-examples are drawn from the validation set and excluded from evaluation.
+\textbf{Hard-case few-shot.} This strategy also keeps the \texttt{L1}
+protocol clarification but swaps in four demonstrations drawn from the
+training set that exemplify the specific narrative structures driving
+miscoding in the baseline, including events where attacker casualties
+are described as claimed or inferred and events where deaths must be
+summed across multiple armed groups.
 
 \textbf{Combined few-shot.} This strategy combines the bin-balanced and
 hard-case example sets (nine demonstrations total) with the protocol
@@ -1324,29 +1353,33 @@ Bold = significantly better than baseline model (paired bootstrap, n = 5000, p <
 Table~\ref{tbl-rarebin-llms} reports the results. The protocol
 clarification strategy is counterproductive. Overall MAE rises from
 0.235 to 0.318 and bin 6+ exact match falls from 78.9\% to 76.3\%.
-However, the few-shot strategies improve performance at every step.
-Bin-balanced demonstrations reduce overall MAE to 0.199 while holding
-bin 6+ exact match at the baseline level. Hard-case demonstrations
-reduce overall MAE further to 0.113 and raise bin 6+ exact match to
-81.6\%, the strongest rare-bin result among all Llama strategies. The
-combined strategy improves on all three metrics, with overall MAE
-falling to 0.107, bin 6+ exact match rising to 89.5\%, and bin 3--5
-exact match holding at 88.0\%. All three figures nominally exceed
-GPT-4o-mini, though none of the differences are statistically
-significant.
+However, all three instruction-plus-example variants improve performance
+relative to both the \texttt{L0} baseline and the instruction-only
+\texttt{L1} prompt. Bin-balanced demonstrations reduce overall MAE to
+0.199 while holding bin 6+ exact match at the baseline level. Hard-case
+demonstrations reduce overall MAE further to 0.113 and raise bin 6+
+exact match to 81.6\%, the strongest rare-bin result among all Llama
+strategies. The combined strategy improves on all three metrics relative
+to the Llama baseline, with overall MAE falling to 0.107, bin 6+ exact
+match rising to 89.5\%, and bin 3--5 exact match holding at 88.0\%.
+Relative to GPT-4o-mini, it performs better on overall MAE and bin 6+
+exact match, though GPT-4o-mini remains stronger on bin 3--5 exact
+match. None of the \texttt{L4} versus GPT-4o-mini differences is
+statistically significant.
 
-These results suggest that demonstrations rather than instructions are
-the active ingredient in few-shot prompting for this task. The protocol
-clarification instruction specifies what to count but provides no
-examples of how to handle the ambiguous cases that drive miscoding in
-the baseline, including claimed casualties, implied totals, and
-multi-group enumeration. Without anchoring examples, the model applies
-the instruction too broadly, increasing predicted counts on cases where
-deaths are genuinely uncertain. The hard-case demonstrations address
-uncertainty by showing the model how to handle each failure type, while
-the protocol instruction adds value within the combined prompt because
-the examples first establish when claimed casualties should be counted
-and when they should not.
+These results suggest that examples, rather than the protocol
+instruction alone, are the active ingredient in the few-shot gains. The
+protocol clarification specifies what to count but provides no examples
+of how to handle the ambiguous cases that drive miscoding in the
+baseline, including claimed casualties, implied totals, and multi-group
+enumeration. Without anchoring examples, the model applies the
+instruction too broadly, increasing predicted counts on cases where
+deaths are genuinely uncertain. The improvements in
+\texttt{L2}--\texttt{L4} should therefore be understood as the effect of
+instruction-plus-examples, with the examples appearing to drive the gain
+over \texttt{L1}. The hard-case demonstrations address uncertainty by
+showing the model how to handle each failure type, while the protocol
+instruction remains part of the combined prompt.
 
 \section{Discussion}\label{discussion}
 
@@ -1746,9 +1779,10 @@ We have recovered bodies of two uniformed Maoists,'' he added.
 Strategy}\label{appendix-b.-full-prompting-strategy}
 
 This appendix records the exact prompt variants used in the LLM
-intervention study reported in Section 6. GPT-4o-mini used the same
-\texttt{L1} instruction text when that ceiling-reference variant was
-evaluated; there was no separate GPT-specific wording.
+intervention study reported in Section 6. The intervention sequence
+\texttt{L0}-\texttt{L4} was applied to Llama-3.1-8B; GPT-4o-mini appears
+in the paper as the \texttt{L0} ceiling reference from the baseline
+experiment.
 
 \subsubsection{B.1 L0 Baseline Prompt}\label{b.1-l0-baseline-prompt}
 
@@ -2140,6 +2174,11 @@ Jiang, Albert Q, Alexandre Sablayrolles, Arthur Mensch, et al. 2023.
 \bibitem[\citeproctext]{ref-jiang2024mixtral}
 Jiang, Albert Q, Alexandre Sablayrolles, Antoine Roux, et al. 2024.
 {``Mixtral of Experts.''} \url{https://arxiv.org/abs/2401.04088}.
+
+\bibitem[\citeproctext]{ref-lafree2007}
+LaFree, Gary, and Laura Dugan. 2007. {``Introducing the {Global
+Terrorism Database}.''} \emph{Terrorism and Political Violence} 19 (2):
+181--204. \url{https://doi.org/10.1080/09546550701246817}.
 
 \bibitem[\citeproctext]{ref-leetaru2013}
 Leetaru, Kalev, and Philip A Schrodt. 2013. {``{GDELT}: {Global Data} on

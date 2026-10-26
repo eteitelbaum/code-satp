@@ -1,0 +1,35 @@
+title: Working Paper Template
+author: Emmanuel Teitelbaum
+version: 0.2.0
+contributes:
+  formats:
+    pdf:
+      #documentclass: article # (I believe this is the default class?)
+      link-citations: true 
+      #link-bibliography: true
+      linkcolor: Blue4
+      citecolor: Blue4
+      urlcolor: Blue4
+      toccolor: Blue4
+      fig-width: 6.5
+      fig-height: 4.5
+      block-headings: false   # so that titlesec package works
+      geometry: margin = 1in
+      fontsize: 11pt
+      mainfont: Palatino
+      mathfont: STIX Two Math
+      linestretch: 1.5
+      #indent: true
+      #fig-cap-location: top
+      include-in-header: header.tex
+      template-partials:
+        - "partials/title.tex" 
+        - "partials/authors.tex"
+        - "partials/before-body.tex"
+      # format-resources:
+      #   - article.cls # this is the article.cls file from LaTeX, need this?
+      
+# would like to be able to control spacing around equations
+#         \setlength{belowdisplayskip}{0pt}
+#         \setlength{abovedisplayskip}{0pt}
+# but I get an error "Missing \begin{document}
