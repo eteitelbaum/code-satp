@@ -1,36 +1,65 @@
-Date: 2024-09-01
+# SATP Conflict Data Pipeline
 
-## Overview
+Code and data for automatically coding conflict events from the [South Asia Terrorism Portal](https://www.satp.org) (SATP). We fine-tune language models on a hand-coded corpus of about 10,000 incident reports from India's Maoist insurgency (2005–2016) and compare what the models produce with what human coders produced.
 
-This repository contains data and code for a data pipeline that scrapes, auto-codes and visualizes data from the South Asia Terrorism Portal (SATP). The auto-coding is done by fine-tuning LLMs with a hand-coded set of approximately 10,000 conflict event descriptions. 
+The pipeline codes six aspects of each incident:
 
-The objective is to fine-tune a series of models that can used to code new events. The events break down into a few key categories: 
+1. **Perpetrator:** who carried out the action (security forces, Maoists, unknown)
+2. **Action type:** what was done (armed assault, bombing, infrastructure attack, abduction, arrest, surrender, seizure); an incident can have several
+3. **Target type:** who or what was affected; an incident can have several
+4. **Casualties:** deaths and injuries
+5. **Other counts:** arrests, surrenders, abductions, property damage
+6. **Location:** state, district, block, village, and other named places, geocoded to coordinates
 
-1) The "perpetrator" or assailant (who took the action);
-2) Action type (what was done);
-3) Target (who was affected);
-4) Casualties (how many people were killed or injured);
-5) Location (where did the event take place);
-6) Miscellaneous other information (e.g. property damage, kidnappings, surrenders, etc.)
-   
-## Data
+## Repository layout
 
-The original hand-coded data is in the `data/satp-dataset.xslx` file. These have been partially wrangled in R (see `wrangle_sapt.qmd`). The cleaned data is in `data/satp_clean.csv` which is then used to generate CSV files relevant for each model we want to fine-tune, e.g. `perpetrator.csv`, `action_type.csv`, etc.
+| Folder | Contents |
+|---|---|
+| `data/` | The hand-coded dataset, the R/Quarto scripts that clean it (`wrangle_satp.qmd`, `select_vars_for_models.qmd`), and the task-specific CSVs they produce |
+| `documentation/` | The coding manual and manual coding procedure |
+| `models/classification-models/` | Perpetrator (single-label) and action and target type (multi-label) classifiers: BERT, RoBERTa, DistilBERT, ConfliBERT, ELECTRA, XLNet, decoder-only LLMs, and class-imbalance strategies |
+| `models/count-models/` | Casualty and count extraction with seq2seq models (T5 family) and LLMs |
+| `models/location-models/` | Location extraction (seq2seq, span-based NER, LLMs) and geocoding experiments |
+| `hugging-face-hosting-inference/` | Streamlit app that runs the production models on new incidents ([Hugging Face Space](https://huggingface.co/spaces/Mohiddin77/SATP-hosting-demo)) |
+| `streamlit-app/` | Streamlit app for scraping new incidents from SATP |
+| `village-matching/` | Matching coded village names to Census 2011 villages (SHRUG) |
+| `papers/`, `presentations/` | Working papers and slides, with their results files |
+| `legacy-notebooks/` | Earlier training and inference notebooks, kept for reference |
 
-The data for location and the miscellaneous other categories like kidnappings, surrenders, etc. have not yet been hived off into separate files. 
+## Running the code
 
-I am not totally sure what is in all of the CSV files, e.g. `satp_classification.csv` and will need to look at them more closely when I get time. 
+Model training runs in Google Colab on a GPU; each notebook clones the repository and loads its data from `data/`. To run the apps locally:
 
-## Models
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r hugging-face-hosting-inference/requirements.txt
+cd hugging-face-hosting-inference && streamlit run app.py
+```
 
-So far, we have been able to fine-tune a series of models using the Hugging Face `transformers` library. Specifically, we have used BERT-based models to code for the "perpetrator" and "action type" categories. 
+The apps read from and write to Google Sheets and use the Google Maps API, so they need credentials in Streamlit secrets.
 
-We also tried fine-tuning a DistilBERT model with a Poisson head for the death count, but this was not very successful. So one next step is to try to fine-tune a Named Entity Recognition (NER) model like GLiNER to get the casualty figures. 
+## Citation
 
-The team has discussed using an NER model to also get the location, but there is also a thought that some of this work could be done through the scraping process or third party API services. 
+The authors request that you cite the following paper in any published work that uses this code or data:
 
-The model files could probably be cleaned up and combined in some cases (e.g. multiple perpetrator models), but let's discuss this in person before taking any action. 
+Teitelbaum, Emmanuel, Mohiddin Bacha Shaik, and Shiva Chakrabarty Sharma. 2026. "The Limits and Promise of Automated Event Coding: Evidence from the South Asia Terrorism Portal." SSRN Working Paper. <https://dx.doi.org/10.2139/ssrn.6163986>
 
-There was some thought given to using RAG models to do some of the coding. I have not seen a RAG used in this way before, but I do like the idea of including a RAG model in the pipeline. One possibility is to use it to answer questions about the data in the web interface. 
+```bibtex
+@article{teitelbaum2026limits,
+  title   = {The Limits and Promise of Automated Event Coding: Evidence from the South Asia Terrorism Portal},
+  author  = {Teitelbaum, Emmanuel and Shaik, Mohiddin Bacha and Sharma, Shiva Chakrabarty},
+  journal = {SSRN Working Paper},
+  year    = {2026},
+  doi     = {10.2139/ssrn.6163986}
+}
+```
 
+GitHub's "Cite this repository" button gives the same reference.
 
+## License
+
+- **Code** is released under the [MIT License](LICENSE).
+- **Our codings and model outputs** are released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- **Files derived from SHRUG** (e.g., `data/shrid_loc_names.csv`) carry SHRUG's license, [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Please also cite Asher, Lunt, Matsuura, and Novosad (2021), "Development Research at High Geographic Resolution: An Analysis of Night-Lights, Firms, and Poverty in India Using the SHRUG Open Data Platform," *World Bank Economic Review* 35(4).
+- **Incident reports** come from the [South Asia Terrorism Portal](https://www.satp.org). See SATP's [terms of use](https://www.satp.org/disclaimer).

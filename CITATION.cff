@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "The authors request that you cite the paper below in any published work that uses this code or data."
+title: "SATP Conflict Data Pipeline"
+type: software
+authors:
+  - family-names: Teitelbaum
+    given-names: Emmanuel
+    affiliation: George Washington University
+  - family-names: Shaik
+    given-names: Mohiddin Bacha
+    affiliation: George Washington University
+repository-code: "https://github.com/eteitelbaum/code-satp"
+license: MIT
+keywords:
+  - event data
+  - conflict
+  - natural language processing
+  - South Asia Terrorism Portal
+preferred-citation:
+  type: article
+  title: "The Limits and Promise of Automated Event Coding: Evidence from the South Asia Terrorism Portal"
+  authors:
+    - family-names: Teitelbaum
+      given-names: Emmanuel
+    - family-names: Shaik
+      given-names: Mohiddin Bacha
+    - family-names: Sharma
+      given-names: Shiva Chakrabarty
+  journal: "SSRN Working Paper"
+  year: 2026
+  doi: 10.2139/ssrn.6163986
+  url: "https://dx.doi.org/10.2139/ssrn.6163986"
