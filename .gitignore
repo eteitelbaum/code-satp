@@ -21,3 +21,6 @@ venv/
 # Location labeling: rebuilt by build_lookup.R / draw_sample.py; labels kept local for now
 /location-labeling/data
 /location-labeling/labels
+
+# Python bytecode
+__pycache__/
