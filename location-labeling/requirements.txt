@@ -1,0 +1,5 @@
+streamlit>=1.40
+pandas
+pyarrow
+rapidfuzz
+shapely>=2.0

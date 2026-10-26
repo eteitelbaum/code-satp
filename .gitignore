@@ -17,3 +17,7 @@ venv/
 
 # Large local data (gitignored, backed up with ~/Documents)
 /village-matching/data-large
+
+# Location labeling: rebuilt by build_lookup.R / draw_sample.py; labels kept local for now
+/location-labeling/data
+/location-labeling/labels
