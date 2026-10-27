@@ -239,7 +239,7 @@ done = set(labels.incident_number)
 with st.sidebar:
     st.header("Location labeling")
     labeler = st.text_input("Your initials", key="labeler")
-    split = st.radio("Split", ["test", "validation"], horizontal=True)
+    split = st.radio("Split", ["validation", "test"], horizontal=True)
     queue = sample[sample.split == split].sort_values("order", key=lambda s: s.astype(int)).reset_index(drop=True)
     n_done = queue.incident_number.isin(done).sum()
     st.progress(n_done / len(queue), text=f"{n_done} of {len(queue)} labeled")
