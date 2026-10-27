@@ -32,11 +32,8 @@ def named(col):
 sample = data[data["split"].isin(["validation", "test"]) & (named("village_name") | named("other_locations"))].copy()
 
 # random labeling order within each split
-sample["order"] = (
-    sample.groupby("split")["incident_number"]
-    .transform(lambda s: s.sample(frac=1, random_state=SEED).rank(method="first"))
-    .astype(int)
-)
+sample = sample.sample(frac=1, random_state=SEED)
+sample["order"] = sample.groupby("split").cumcount() + 1
 
 # --- 2011 district and the hand-entered pin's SHRUG place ---
 crosswalk = pd.read_csv("location-labeling/data/district_crosswalk.csv", dtype=str)
