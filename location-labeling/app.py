@@ -10,6 +10,7 @@ resume at any time.
 """
 
 import html
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +20,7 @@ import pandas as pd
 import pydeck as pdk
 import shapely
 import streamlit as st
-from rapidfuzz import process
+from rapidfuzz import fuzz, process
 from rapidfuzz.distance import JaroWinkler
 
 ROOT = Path(__file__).parent
@@ -69,8 +70,9 @@ def load_places():
     places["name"] = places["name"].fillna("(unnamed)")  # a few SHRUG places have no name
     places["key"] = places["name"].map(norm).where(places["name"] != "(unnamed)", "")
     also = places["name"].map(lambda n: f" [{', '.join(ALIASES[n])}]" if n in ALIASES else "")
-    where = places["subdistrict_name"].fillna(places["district_name"])
-    places["label"] = places["name"].fillna("?") + also + " — " + where + " (" + places["place_type"] + ")"
+    where = ("in " + places["subdistrict_name"].str.title() + " subdistrict").fillna(
+        "in " + places["district_name"].str.title() + " district")
+    places["label"] = places["name"] + also + " (" + places["place_type"] + ") · " + where
     return places
 
 
@@ -108,15 +110,21 @@ def query_names(inc):
     return list(dict.fromkeys(names))
 
 
+def spelling(a, b, **kwargs):
+    """Spelling similarity, 0-1: the average of Jaro-Winkler, which rewards a shared beginning, and an
+    edit-distance ratio, which tolerates vowel changes (Revulakota vs. Ravulakota)."""
+    return (JaroWinkler.normalized_similarity(a, b) + fuzz.ratio(a, b) / 100) / 2
+
+
 def shortlist(places, names, n=12):
-    """Best SHRUG matches for the coded names, by Jaro-Winkler similarity."""
+    """Best SHRUG matches for the coded names, by spelling similarity."""
     keys = places["key"]
     alias_keys = [(i, norm(a)) for i, name in places["name"].items() for a in ALIASES.get(name, [])]
     if alias_keys:
         keys = pd.concat([keys, pd.Series([k for _, k in alias_keys], index=[i for i, _ in alias_keys])])
     rows = []
     for name in names:
-        for key, score, i in process.extract(norm(name), keys, scorer=JaroWinkler.normalized_similarity, limit=n):
+        for key, score, i in process.extract(norm(name), keys, scorer=spelling, limit=n):
             rows.append((i, name, score))
     if not rows:
         return pd.DataFrame(columns=list(places.columns) + ["query", "score"])
@@ -136,13 +144,13 @@ def names_in_text(places, text):
 
 
 def split_towns(places):
-    """Towns SHRUG splits into several pieces in this district (e.g., GHMC), with the number of pieces."""
+    """Towns that span several subdistricts, which the Census and SHRUG list as one part per subdistrict (e.g., GHMC)."""
     counts = places[places.place_type == "town"].groupby("name").size()
     return counts[counts > 1].to_dict()
 
 
 def collapse_towns(df, groups):
-    """Show a split town as one candidate, keyed 'town:<name>'; its pieces stay available in the search."""
+    """Show a split town as one candidate, keyed 'town:<name>'; its parts stay available in the search."""
     split = df["name"].isin(groups) & (df["place_type"] == "town")
     if not split.any():
         return df
@@ -150,12 +158,12 @@ def collapse_towns(df, groups):
         lon=("lon", "mean"), lat=("lat", "mean"), query=("query", "first"), score=("score", "max"))
     whole["shrid2"] = "town:" + whole["name"]
     whole["place_type"] = "town"
-    whole["label"] = whole["name"].map(lambda n: f"{n}{' [' + ', '.join(ALIASES[n]) + ']' if n in ALIASES else ''} — whole town, {groups[n]} pieces")
+    whole["label"] = whole["name"].map(lambda n: f"{n}{' [' + ', '.join(ALIASES[n]) + ']' if n in ALIASES else ''} (town) · whole town, {groups[n]} subdistrict parts")
     return pd.concat([whole, df[~split]]).sort_values("score", ascending=False, kind="stable")
 
 
 def members(pool, choice):
-    """SHRUG rows for a choice: one place, or every piece of a split town."""
+    """SHRUG rows for a choice: one place, or every part of a town that spans subdistricts."""
     if choice.startswith("town:"):
         return pool[(pool["name"] == choice[5:]) & (pool["place_type"] == "town")]
     return pool[pool["shrid2"] == choice]
@@ -188,6 +196,10 @@ def locate(state_id, lat, lon):
     point = shapely.Point(lon, lat)
     inside = tree.query(point, predicate="intersects")
     if len(inside):
+        km2 = shapely.area(geoms[inside[0]]) * 111.32 ** 2 * math.cos(math.radians(lat))
+        if km2 > 30:  # top 1% of SHRUG polygons; often an approximation that absorbed forest land
+            return ids[inside[0]], (f"inside, but this polygon is unusually large ({km2:.0f} km²; the median village is 2 km²), "
+                                    "so the settlement may belong to a nearby village with the matching name")
         return ids[inside[0]], "inside"
     nearest, dist = tree.query_nearest(point, max_distance=0.02, return_distance=True)
     if len(nearest):
@@ -261,6 +273,8 @@ places = district_places(inc["state_id"], inc["district_id_2011"]) if inc["distr
 names = query_names(inc)
 cands = shortlist(places, names)
 in_text = names_in_text(places, inc["incident_summary"])
+# "Warangal District" names the district, not the town of Warangal
+in_text = in_text[~in_text["key"].isin({norm(inc["district"]), norm(inc["district_name_2011"])})]
 pre_shrid, pre_source = preselect(inc, places)
 
 if key("choice") not in st.session_state:
@@ -274,7 +288,11 @@ if key("choice") not in st.session_state:
         st.session_state[key("choice")] = pre_shrid
 
 # header
-status = "✅ labeled" if existing is not None else "not yet labeled"
+if existing is not None:
+    saved_where = LEGACY.get(existing["precision"], existing["precision"])
+    status = f"✅ labeled: {saved_where}" + (f", {existing['place_name']}" if existing["place_name"] else "")
+else:
+    status = "not yet labeled"
 st.markdown(f"**{split} #{inc['order']}** · incident {iid} · {inc['date']} · {status}")
 district_note = inc["district_name_2011"].title() if inc["district_name_2011"] else "no 2011 district matched"
 st.markdown(f"### {inc['district']}, {inc['state']}  <span style='font-size:0.7em;color:gray'>2011 district: {district_note}</span>", unsafe_allow_html=True)
@@ -306,6 +324,27 @@ with left:
             st.session_state[key("choice")] = p["shrid2"]
             st.session_state[key("via_search")] = False
             st.rerun()
+        if p["shrid2"].startswith("town:"):  # the town's subdistrict parts, indented under it
+            parts = members(places, p["shrid2"]).sort_values("subdistrict_name", na_position="last")
+            _, inner = st.columns([1, 12])
+            for _, part in parts.iterrows():
+                part_on = st.session_state[key("choice")] == part["shrid2"]
+                sub = part["subdistrict_name"].title() if isinstance(part["subdistrict_name"], str) else "unnamed subdistrict"
+                if inner.button(f"{'● ' if part_on else ''}↳ part in {sub}", key=key(f"c_{part['shrid2']}"),
+                                type="primary" if part_on else "secondary"):
+                    st.session_state[key("choice")] = part["shrid2"]
+                    st.rerun()
+
+    lookup = st.text_input("Look up a name", key=key("lookup"), placeholder="e.g. a village named on the SATP page",
+                           help="Lists the closest spellings among SHRUG villages and towns in the district. A close spelling "
+                                "may or may not be the same place: check on a map before choosing.")
+    if lookup.strip():
+        for _, p in shortlist(places, [lookup.strip()], n=8).iterrows():
+            is_on = st.session_state[key("choice")] == p["shrid2"]
+            if st.button(f"{'● ' if is_on else ''}{p['label']} · spelling match {p['score']:.2f}",
+                         key=key(f"l_{p['shrid2']}"), type="primary" if is_on else "secondary"):
+                st.session_state[key("choice")] = p["shrid2"]
+                st.rerun()
 
     widen = st.checkbox("Search other districts in this state too", key=key("widen"),
                         help="For events the coders placed in the wrong district, or places in a neighboring district")
@@ -313,9 +352,9 @@ with left:
     pool = all_places[all_places.state_id == inc["state_id"]] if widen else places
     if (choice_now := st.session_state[key("choice")]) and not choice_now.startswith("town:"):
         pool = pd.concat([pool, all_places[all_places.shrid2 == choice_now]]).drop_duplicates("shrid2")
-    whole_towns = {f"town:{n}": f"{n} — whole town, {k} pieces" for n, k in groups.items()}
+    whole_towns = {f"town:{n}": f"{n} (town) · whole town, {k} subdistrict parts" for n, k in groups.items()}
     options = [""] + list(whole_towns) + pool["shrid2"].tolist()
-    labels_by_shrid = dict(zip(pool["shrid2"], pool["label"] + ("" if not widen else " · " + pool["district_name"])))
+    labels_by_shrid = dict(zip(pool["shrid2"], pool["label"] + ("" if not widen else ", " + pool["district_name"].str.title() + " district")))
     labels_by_shrid.update(whole_towns)
     picked = st.selectbox("Search villages and towns" + (" in the state" if widen else " in the district"), options,
                           key=key("search"), format_func=lambda s: labels_by_shrid.get(s, "type to search…"))
@@ -325,9 +364,25 @@ with left:
         st.rerun()
 
     saved_coords = f"{existing['located_lat']}, {existing['located_lon']}" if existing is not None and existing["located_lat"] else ""
-    coords = st.text_input("Locate by coordinates", key=key("coords"), value=saved_coords,
-                           placeholder="e.g. 17.3260, 78.5550",
-                           help="In Google Maps, right-click the spot and click the coordinates at the top of the menu to copy them; paste here.")
+    def clear_point(reset_box=True):
+        """Forget the pasted point, and the place it selected."""
+        if st.session_state.get(key("choice")) == st.session_state.get(key("located_shrid")):
+            st.session_state[key("choice")] = ""
+        for k in ("coords_done", "located", "located_shrid"):
+            st.session_state.pop(key(k), None)
+        if reset_box:  # only from the button's callback, before the box is drawn
+            st.session_state[key("coords")] = ""
+
+    if key("coords") not in st.session_state:
+        st.session_state[key("coords")] = saved_coords
+    c_in, c_clear = st.columns([5, 1], vertical_alignment="bottom")
+    coords = c_in.text_input("Locate by coordinates", key=key("coords"),
+                             placeholder="e.g. 17.3260, 78.5550",
+                             help="In Google Maps, right-click the spot and click the coordinates at the top of the menu to copy them; paste here.")
+    c_clear.button("Clear", key=key("clear_point"), on_click=clear_point, use_container_width=True)
+    if not coords and st.session_state.get(key("coords_done")):  # box emptied by hand
+        clear_point(reset_box=False)
+        st.rerun()
     if coords and coords != st.session_state.get(key("coords_done")):
         st.session_state[key("coords_done")] = coords
         parsed = parse_coords(coords)
@@ -336,6 +391,7 @@ with left:
         else:
             shrid, how = locate(inc["state_id"], *parsed)
             st.session_state[key("located")] = (*parsed, how)
+            st.session_state[key("located_shrid")] = shrid
             if shrid:
                 st.session_state[key("choice")] = shrid
             st.rerun()
@@ -396,14 +452,25 @@ with right:
     if precision in AT_PLACE:
         st.markdown(f"**Selected:** {labels_by_shrid.get(choice, '— none: pick a candidate or search —')}")
     elif precision == "subdistrict":
-        subs = in_district.drop_duplicates("subdistrict_id").sort_values("subdistrict_name")
-        sub_names = dict(zip(subs.subdistrict_id, subs.subdistrict_name))
+        # the coded district's subdistricts first, then the selected place's district if it differs
+        coded_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == inc["district_id_2011"])]
+        subs = pd.concat([coded_district, in_district]).drop_duplicates("subdistrict_id")
+        subs = subs.assign(other=subs.district_id != inc["district_id_2011"]).sort_values(["other", "subdistrict_name"])
+        sub_names = dict(zip(subs.subdistrict_id, subs.subdistrict_name.str.title()
+                             + subs.other.map({True: " (", False: ""}) + subs.district_name.str.title().where(subs.other, "")
+                             + subs.other.map({True: " district)", False: ""})))
+        sub_district = dict(zip(subs.subdistrict_id, subs.district_id))
         options = [""] + subs.subdistrict_id.tolist()
         saved = existing["subdistrict_id"] if existing is not None and existing["precision"] == "subdistrict" else ""
-        start = saved or subdistrict_id  # default: the subdistrict of the selected village
+        # default: the selected village's subdistrict, else one the coders named (e.g., "Thullur" mandal)
+        named = [i for i, n in sub_names.items() if isinstance(n, str) and norm(n) in {norm(x) for x in names}]
+        start = saved or subdistrict_id or (named[0] if named else "")
         subdistrict_id = st.selectbox("Subdistrict (defaults to the selected village's)", options, key=key("subdistrict"),
                                       index=options.index(start) if start in options else 0,
                                       format_func=lambda s: sub_names.get(s, "choose…"))
+        if subdistrict_id:  # the label's district follows the chosen subdistrict
+            district_id = sub_district[subdistrict_id]
+            in_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == district_id)]
     place_type = st.selectbox("What kind of place is it?", PLACE_TYPES, key=key("type"),
                               index=PLACE_TYPES.index(default("place_type", "village")))
     reason = st.selectbox("If not a village or town: why?", REASONS, key=key("reason"),
