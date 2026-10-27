@@ -1,0 +1,152 @@
+incident_number,state_code,year,date_entered,id_date,days_apart,id_year_agrees,problem,date_to_use,source
+101071201,1,2012,2015-09-04,2012-01-07,1336,TRUE,date and incident number differ,,unverified: check against SATP
+102011201,1,2012,1940-09-04,2012-02-01,-26082,TRUE,date and incident number differ,,unverified: check against SATP
+102030501,1,2005,2005-01-03,2005-02-03,-31,TRUE,date and incident number differ,,unverified: check against SATP
+102130701,1,2007,2007-02-01,2007-02-13,-12,TRUE,date and incident number differ,,unverified: check against SATP
+103030501,1,2005,2005-05-03,2005-03-03,61,TRUE,date and incident number differ,,unverified: check against SATP
+103051601,1,2016,2016-04-05,2016-03-05,31,TRUE,date and incident number differ,,unverified: check against SATP
+105281401,1,2014,2014-05-24,2014-05-28,-4,TRUE,date and incident number differ,,unverified: check against SATP
+106030801,1,2008,2008-07-03,2008-06-03,30,TRUE,date and incident number differ,,unverified: check against SATP
+107071101,1,2011,2011-07-16,2011-07-07,9,TRUE,date and incident number differ,,unverified: check against SATP
+107110702,1,2007,2007-07-12,2007-07-11,1,TRUE,date and incident number differ,,unverified: check against SATP
+107110703,1,2007,2007-07-13,2007-07-11,2,TRUE,date and incident number differ,,unverified: check against SATP
+108020702,1,2007,2007-08-03,2007-08-02,1,TRUE,date and incident number differ,,unverified: check against SATP
+108130801,1,2008,2008-08-08,2008-08-13,-5,TRUE,date and incident number differ,,unverified: check against SATP
+109150901,1,2009,2009-09-20,2009-09-15,5,TRUE,date and incident number differ,,unverified: check against SATP
+109230703,1,2007,2007-09-03,2007-09-23,-20,TRUE,date and incident number differ,,unverified: check against SATP
+109231501,1,2015,2015-09-25,2015-09-23,2,TRUE,date and incident number differ,,unverified: check against SATP
+110100801,1,2008,2008-10-08,2008-10-10,-2,TRUE,date and incident number differ,,unverified: check against SATP
+110261101,1,2011,2011-11-26,2011-10-26,31,TRUE,date and incident number differ,,unverified: check against SATP
+112021005,1,2010,2010-02-21,2010-12-02,-284,TRUE,date and incident number differ,,unverified: check against SATP
+112171601,1,2016,2010-12-13,2016-12-17,-2196,TRUE,date and incident number differ,,unverified: check against SATP
+1201050601,12,2006,2006-01-15,2006-01-05,10,TRUE,date and incident number differ,,unverified: check against SATP
+1202181501,12,2015,2015-04-18,2015-02-18,59,TRUE,date and incident number differ,,unverified: check against SATP
+1203271601,12,2016,2016-03-22,2016-03-27,-5,TRUE,date and incident number differ,,unverified: check against SATP
+1209171501,12,2015,2015-09-15,2015-09-17,-2,TRUE,date and incident number differ,,unverified: check against SATP
+1211070701,12,2007,2007-11-05,2007-11-07,-2,TRUE,date and incident number differ,,unverified: check against SATP
+1306181601,13,2016,2016-06-21,2016-06-18,3,TRUE,date and incident number differ,,unverified: check against SATP
+1403040601,14,2006,2006-03-11,2006-03-04,7,TRUE,date and incident number differ,,unverified: check against SATP
+1403171101,14,2011,2011-02-17,2011-03-17,-28,TRUE,date and incident number differ,,unverified: check against SATP
+1403171102,14,2011,2011-02-21,2011-03-17,-24,TRUE,date and incident number differ,,unverified: check against SATP
+1403190902,14,2009,2009-03-17,2009-03-19,-2,TRUE,date and incident number differ,,unverified: check against SATP
+1406031001,14,2010,2010-05-03,2010-06-03,-31,TRUE,date and incident number differ,,unverified: check against SATP
+1407100701,14,2007,2007-07-11,2007-07-10,1,TRUE,date and incident number differ,,unverified: check against SATP
+1407240702,14,2007,2007-07-13,2007-07-24,-11,TRUE,date and incident number differ,,unverified: check against SATP
+1408030901,14,2009,2009-08-04,2009-08-03,1,TRUE,date and incident number differ,,unverified: check against SATP
+1408280801,14,2008,2008-09-28,2008-08-28,31,TRUE,date and incident number differ,,unverified: check against SATP
+1409141601,14,2016,2016-09-24,2016-09-14,10,TRUE,date and incident number differ,,unverified: check against SATP
+1409170801,14,2008,2008-04-17,2008-09-17,-153,TRUE,date and incident number differ,,unverified: check against SATP
+1409201001,14,2010,2010-09-29,2010-09-20,9,TRUE,date and incident number differ,,unverified: check against SATP
+1410070601,14,2006,2006-11-07,2006-10-07,31,TRUE,date and incident number differ,,unverified: check against SATP
+1410080601,14,2006,2006-11-08,2006-10-08,31,TRUE,date and incident number differ,,unverified: check against SATP
+1410130601,14,2006,2006-11-13,2006-10-13,31,TRUE,date and incident number differ,,unverified: check against SATP
+1410150601,14,2006,2006-11-15,2006-10-15,31,TRUE,date and incident number differ,,unverified: check against SATP
+1410281001,14,2010,2010-10-14,2010-10-28,-14,TRUE,date and incident number differ,,unverified: check against SATP
+1410300601,14,2006,2006-11-30,2006-10-30,31,TRUE,date and incident number differ,,unverified: check against SATP
+1410300602,14,2006,2006-11-30,2006-10-30,31,TRUE,date and incident number differ,,unverified: check against SATP
+1706131601,17,2016,2016-04-01,2016-06-13,-73,TRUE,date and incident number differ,,unverified: check against SATP
+1806261601,18,2016,2016-04-26,2016-06-26,-61,TRUE,date and incident number differ,,unverified: check against SATP
+202121001,2,2010,2010-01-12,2010-02-12,-31,TRUE,date and incident number differ,,unverified: check against SATP
+202131501,2,2015,2015-01-13,2015-02-13,-31,TRUE,date and incident number differ,,unverified: check against SATP
+202171501,2,2015,2015-01-17,2015-02-17,-31,TRUE,date and incident number differ,,unverified: check against SATP
+202261102,2,2011,2011-02-16,2011-02-26,-10,TRUE,date and incident number differ,,unverified: check against SATP
+203021401,2,2014,2014-04-02,2014-03-02,31,TRUE,date and incident number differ,,unverified: check against SATP
+203090601,2,2006,2006-04-09,2006-03-09,31,TRUE,date and incident number differ,,unverified: check against SATP
+203131401,2,2014,2014-03-10,2014-03-13,-3,TRUE,date and incident number differ,,unverified: check against SATP
+204041301,2,2013,2013-04-05,2013-04-04,1,TRUE,date and incident number differ,,unverified: check against SATP
+204041401,2,2014,2014-04-07,2014-04-04,3,TRUE,date and incident number differ,,unverified: check against SATP
+204101401,2,2014,2014-04-08,2014-04-10,-2,TRUE,date and incident number differ,,unverified: check against SATP
+204150901,2,2009,2009-04-14,2009-04-15,-1,TRUE,date and incident number differ,,unverified: check against SATP
+204150902,2,2009,2009-04-14,2009-04-15,-1,TRUE,date and incident number differ,,unverified: check against SATP
+206171301,2,2013,2013-06-18,2013-06-17,1,TRUE,date and incident number differ,,unverified: check against SATP
+206281001,2,2010,2010-06-29,2010-06-28,1,TRUE,date and incident number differ,,unverified: check against SATP
+208091001,2,2010,2010-09-09,2010-08-09,31,TRUE,date and incident number differ,,unverified: check against SATP
+209171401,2,2014,2014-09-19,2014-09-17,2,TRUE,date and incident number differ,,unverified: check against SATP
+210091101,2,2011,2011-11-09,2011-10-09,31,TRUE,date and incident number differ,,unverified: check against SATP
+210191601,2,2016,2016-11-19,2016-10-19,31,TRUE,date and incident number differ,,unverified: check against SATP
+2104121001,21,2010,2010-02-14,2010-04-12,-57,TRUE,date and incident number differ,,unverified: check against SATP
+2105151001,21,2010,2010-05-17,2010-05-15,2,TRUE,date and incident number differ,,unverified: check against SATP
+211080701,2,2007,2007-11-07,2007-11-08,-1,TRUE,date and incident number differ,,unverified: check against SATP
+211141001,2,2010,2010-11-12,2010-11-14,-2,TRUE,date and incident number differ,,unverified: check against SATP
+212151101,2,2011,2011-02-15,2011-12-15,-303,TRUE,date and incident number differ,,unverified: check against SATP
+212221601,2,2016,2016-12-17,2016-12-22,-5,TRUE,date and incident number differ,,unverified: check against SATP
+212250801,2,2008,2008-12-26,2008-12-25,1,TRUE,date and incident number differ,,unverified: check against SATP
+301081501,3,2015,2015-01-06,2015-01-08,-2,TRUE,date and incident number differ,,unverified: check against SATP
+301111002,3,2010,2010-02-11,2010-01-11,31,TRUE,date and incident number differ,,unverified: check against SATP
+301140801,3,2008,2008-02-14,2008-01-14,31,TRUE,date and incident number differ,,unverified: check against SATP
+303271501,3,2015,2015-03-24,2015-03-27,-3,TRUE,date and incident number differ,,unverified: check against SATP
+305220801,3,2008,2008-05-21,2008-05-22,-1,TRUE,date and incident number differ,,unverified: check against SATP
+306180702,3,2007,2007-06-19,2007-06-18,1,TRUE,date and incident number differ,,unverified: check against SATP
+308141001,3,2010,2010-08-12,2010-08-14,-2,TRUE,date and incident number differ,,unverified: check against SATP
+308190701,3,2007,2007-08-11,2007-08-19,-8,TRUE,date and incident number differ,,unverified: check against SATP
+308231001,3,2010,2010-08-26,2010-08-23,3,TRUE,date and incident number differ,,unverified: check against SATP
+308310704,3,2007,2007-08-30,2007-08-31,-1,TRUE,date and incident number differ,,unverified: check against SATP
+309231404,3,2014,2014-09-24,2014-09-23,1,TRUE,date and incident number differ,,unverified: check against SATP
+310230702,3,2007,2007-10-02,2007-10-23,-21,TRUE,date and incident number differ,,unverified: check against SATP
+311101001,3,2010,2010-05-10,2010-11-10,-184,TRUE,date and incident number differ,,unverified: check against SATP
+311151603,3,2016,2016-11-25,2016-11-15,10,TRUE,date and incident number differ,,unverified: check against SATP
+311301602,3,2016,2016-12-30,2016-11-30,30,TRUE,date and incident number differ,,unverified: check against SATP
+312131403,3,2014,2014-12-15,2014-12-13,2,TRUE,date and incident number differ,,unverified: check against SATP
+312161502,3,2015,2015-12-13,2015-12-16,-3,TRUE,date and incident number differ,,unverified: check against SATP
+312171501,3,2015,2015-12-13,2015-12-17,-4,TRUE,date and incident number differ,,unverified: check against SATP
+312181502,3,2015,2015-12-13,2015-12-18,-5,TRUE,date and incident number differ,,unverified: check against SATP
+801061102,8,2011,2011-01-12,2011-01-06,6,TRUE,date and incident number differ,,unverified: check against SATP
+801300701,8,2007,2007-01-20,2007-01-30,-10,TRUE,date and incident number differ,,unverified: check against SATP
+802091001,8,2010,2010-02-10,2010-02-09,1,TRUE,date and incident number differ,,unverified: check against SATP
+802101002,8,2010,2010-02-20,2010-02-10,10,TRUE,date and incident number differ,,unverified: check against SATP
+803201002,8,2010,2010-03-19,2010-03-20,-1,TRUE,date and incident number differ,,unverified: check against SATP
+805061104,8,2011,2011-06-06,2011-05-06,31,TRUE,date and incident number differ,,unverified: check against SATP
+805131501,8,2015,2015-05-11,2015-05-13,-2,TRUE,date and incident number differ,,unverified: check against SATP
+805141601,8,2016,2016-05-18,2016-05-14,4,TRUE,date and incident number differ,,unverified: check against SATP
+805261001,8,2010,2010-05-28,2010-05-26,2,TRUE,date and incident number differ,,unverified: check against SATP
+807051601,8,2016,2016-04-05,2016-07-05,-91,TRUE,date and incident number differ,,unverified: check against SATP
+807061601,8,2016,2016-06-06,2016-07-06,-30,TRUE,date and incident number differ,,unverified: check against SATP
+808041401,8,2014,2014-08-03,2014-08-04,-1,TRUE,date and incident number differ,,unverified: check against SATP
+808061102,8,2011,2011-08-08,2011-08-06,2,TRUE,date and incident number differ,,unverified: check against SATP
+808191003,8,2010,2010-08-29,2010-08-19,10,TRUE,date and incident number differ,,unverified: check against SATP
+810101601,8,2016,2016-11-10,2016-10-10,31,TRUE,date and incident number differ,,unverified: check against SATP
+811090801,8,2008,2008-11-19,2008-11-09,10,TRUE,date and incident number differ,,unverified: check against SATP
+811191601,8,2016,2016-11-29,2016-11-19,10,TRUE,date and incident number differ,,unverified: check against SATP
+812080901,8,2009,2009-12-07,2009-12-08,-1,TRUE,date and incident number differ,,unverified: check against SATP
+812160702,8,2007,2007-12-17,2007-12-16,1,TRUE,date and incident number differ,,unverified: check against SATP
+812170701,8,2007,2007-12-16,2007-12-17,-1,TRUE,date and incident number differ,,unverified: check against SATP
+812190801,8,2008,2008-12-17,2008-12-19,-2,TRUE,date and incident number differ,,unverified: check against SATP
+903031001,9,2010,2010-01-26,2010-03-03,-36,TRUE,date and incident number differ,,unverified: check against SATP
+910151601,9,2016,2016-08-30,2016-10-15,-46,TRUE,date and incident number differ,,unverified: check against SATP
+811211601,8,2016,,2016-11-21,,TRUE,date missing or unreadable,2016-11-21,incident number and year column
+1210081002,12,2010,2010-08-10,2010-10-08,-59,TRUE,day and month swapped in date,2010-10-08,incident number and year column
+1010141101,10,2012,2012-10-14,2011-10-14,366,FALSE,incident number off,2012-10-14,date and year column
+101130701,1,2008,2008-01-13,2007-01-13,365,FALSE,incident number off,2008-01-13,date and year column
+104080201,1,2008,2008-04-02,2002-04-08,2186,FALSE,incident number off,2008-04-02,date and year column
+105092001,1,2008,2008-05-29,2020-05-09,-4363,FALSE,incident number off,2008-05-29,date and year column
+106301401,1,2013,2013-06-30,2014-06-30,-365,FALSE,incident number off,2013-06-30,date and year column
+107020601,1,2005,2005-07-02,2006-07-02,-365,FALSE,incident number off,2005-07-02,date and year column
+107021401,1,2013,2013-07-02,2014-07-02,-365,FALSE,incident number off,2013-07-02,date and year column
+110231401,1,2013,2013-10-23,2014-10-23,-365,FALSE,incident number off,2013-10-23,date and year column
+111041601,1,2008,2008-11-04,2016-11-04,-2922,FALSE,incident number off,2008-11-04,date and year column
+111051401,1,2013,2013-11-05,2014-11-05,-365,FALSE,incident number off,2013-11-05,date and year column
+111220601,1,2005,2005-11-22,2006-11-22,-365,FALSE,incident number off,2005-11-22,date and year column
+140200801,1,2008,2008-02-09,,,FALSE,incident number off,2008-02-09,date and year column
+101020801,1,2008,2016-01-02,2008-01-02,2922,TRUE,wrong year in date,2008-01-02,incident number and year column
+101040801,1,2008,2016-01-04,2008-01-04,2922,TRUE,wrong year in date,2008-01-04,incident number and year column
+101080801,1,2008,2016-01-08,2008-01-08,2922,TRUE,wrong year in date,2008-01-08,incident number and year column
+101290801,1,2008,2016-01-29,2008-01-29,2922,TRUE,wrong year in date,2008-01-29,incident number and year column
+103061302,1,2013,2014-03-06,2013-03-06,365,TRUE,wrong year in date,2013-03-06,incident number and year column
+107040801,1,2008,2016-07-04,2008-07-04,2922,TRUE,wrong year in date,2008-07-04,incident number and year column
+108280601,1,2006,2011-08-28,2006-08-28,1826,TRUE,wrong year in date,2006-08-28,incident number and year column
+112131601,1,2016,2010-12-13,2016-12-13,-2192,TRUE,wrong year in date,2016-12-13,incident number and year column
+1203080702,12,2007,2018-03-08,2007-03-08,4018,TRUE,wrong year in date,2007-03-08,incident number and year column
+1210060901,12,2009,2017-10-06,2009-10-06,2922,TRUE,wrong year in date,2009-10-06,incident number and year column
+1403080801,14,2008,2007-03-08,2008-03-08,-366,TRUE,wrong year in date,2008-03-08,incident number and year column
+1404300801,14,2008,2007-04-30,2008-04-30,-366,TRUE,wrong year in date,2008-04-30,incident number and year column
+1706281401,17,2014,2015-06-28,2014-06-28,365,TRUE,wrong year in date,2014-06-28,incident number and year column
+203270501,2,2005,2007-03-27,2005-03-27,730,TRUE,wrong year in date,2005-03-27,incident number and year column
+206101202,2,2012,2016-06-10,2012-06-10,1461,TRUE,wrong year in date,2012-06-10,incident number and year column
+206260801,2,2008,2016-06-26,2008-06-26,2922,TRUE,wrong year in date,2008-06-26,incident number and year column
+209201302,2,2013,2016-09-20,2013-09-20,1096,TRUE,wrong year in date,2013-09-20,incident number and year column
+2106260901,21,2009,2017-06-26,2009-06-26,2922,TRUE,wrong year in date,2009-06-26,incident number and year column
+2111060902,21,2009,2017-11-06,2009-11-06,2922,TRUE,wrong year in date,2009-11-06,incident number and year column
+211170801,2,2008,2017-11-17,2008-11-17,3287,TRUE,wrong year in date,2008-11-17,incident number and year column
+305251402,3,2014,2015-05-25,2014-05-25,365,TRUE,wrong year in date,2014-05-25,incident number and year column
+805150801,8,2008,2011-05-15,2008-05-15,1095,TRUE,wrong year in date,2008-05-15,incident number and year column
+810181101,8,2011,2010-10-18,2011-10-18,-365,TRUE,wrong year in date,2011-10-18,incident number and year column
