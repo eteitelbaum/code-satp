@@ -458,25 +458,21 @@ with left:
     weak["shrug"] = weak.matched.str.extract(r"SHRUG (\d\.\d+)")[0].astype(float).fillna(0)
     weak = weak[weak.shrug < 0.92]
     osm_kinds = ["village", "town", "hamlet", "locality", "police station", "camp", "other", "forest", "hill"]
-    g = lambda m: f"([Google Maps]({google_maps(m.name)}))"
+    g = lambda m: f"[Look up {m.name} on Google Maps]({google_maps(m.name)})"
 
-    def nearest(m):
-        opt = sug[(sug["query"] == m.name) & (sug["source"] == "SHRUG") & (sug["rank"] > 0)]
-        if len(opt):
-            return f"{m.name}: option {opt.iloc[0]['rank']} is {opt.iloc[0]['name']}, spelling {m.shrug:.2f} {g(m)}"
-        return f"{m.name}: closest SHRUG spelling {m.shrug:.2f}, not among the options {g(m)}"
-
-    approx = weak[weak.shrug > 0]
-    missing = weak[(weak.shrug == 0) & weak.kind.isin(osm_kinds)]
-    unsearched = weak[(weak.shrug == 0) & ~weak.kind.isin(osm_kinds)]
-    if len(approx):
-        st.markdown("**Only a different spelling in SHRUG** (check it is the same place): "
-                    + " · ".join(nearest(m) for m in approx.itertuples()))
-    if len(missing):
-        st.markdown("**Not in SHRUG or OpenStreetMap:** " + " · ".join(f"{m.name} {g(m)}" for m in missing.itertuples()))
-    if len(unsearched):
-        st.markdown("**Not in SHRUG; OpenStreetMap not searched for this kind of place:** "
-                    + " · ".join(f"{m.name} ({m.kind}) {g(m)}" for m in unsearched.itertuples()))
+    for m in weak.itertuples():
+        if m.kind in osm_kinds:
+            missing = f"**{m.name}** is not in SHRUG or OpenStreetMap" + ("." if m.shrug else " under any similar spelling.")
+        else:
+            kinds = "mandals or blocks" if m.kind == "mandal or block" else m.kind + "s"
+            missing = f"**{m.name}** ({m.kind}) is not in SHRUG, and OpenStreetMap is not searched for {kinds}."
+        closest = ""
+        if m.shrug:
+            opt = sug[(sug["query"] == m.name) & (sug["source"] == "SHRUG") & (sug["rank"] > 0)]
+            closest = (f" The closest SHRUG name, {opt.iloc[0]['name']} (option {opt.iloc[0]['rank']}, spelling similarity "
+                       f"{m.shrug:.2f}), may be a different place." if len(opt) else
+                       f" The closest SHRUG name (spelling similarity {m.shrug:.2f}) is not among the options.")
+        st.markdown(f"{missing}{closest} {g(m)}")
     cand_box = st.expander("More candidates: coded names and names in the text") if len(sug) else st.container()
     if not len(sug):
         st.subheader("Candidates")
