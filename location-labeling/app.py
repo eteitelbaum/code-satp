@@ -146,6 +146,10 @@ def apply_suggestion(o):
     """Fill the label from a suggestion: the place (or OpenStreetMap point), in or near, or the subdistrict."""
     st.session_state[key("suggestion")] = int(o.rank)
     st.session_state.pop(key("precision"), None)  # the radio takes its value from prec_pick on the next run
+    if o.source != "OpenStreetMap" and st.session_state.get(key("located_source")) == "OpenStreetMap":
+        for k in ("coords_done", "located", "located_shrid", "located_source"):  # a point set by an earlier suggestion
+            st.session_state.pop(key(k), None)
+        st.session_state[key("coords")] = ""
     if o.relation == "subdistrict":
         st.session_state[key("prec_pick")] = "subdistrict"
         st.session_state[key("sub_pick")] = o.subdistrict_id
@@ -213,10 +217,16 @@ def shortlist(places, names, n=12):
     alias_keys = [(i, norm(a)) for i, name in places["name"].items() for a in ALIASES.get(name, [])]
     if alias_keys:
         keys = pd.concat([keys, pd.Series([k for _, k in alias_keys], index=[i for i, _ in alias_keys])])
+    # each word of a multi-word name, so "Bacheli" finds "Bade Bacheli"; scored just below an exact match
+    parts = pd.Series({(i, w): w for i, name in places["name"].items() if len(str(name).split()) > 1
+                       for w in {norm(x) for x in re.split(r"[\s\-()/,]+", str(name))} if len(w) >= 4})
     rows = []
     for name in names:
         for key, score, i in process.extract(norm(name), keys, scorer=spelling, limit=n):
             rows.append((i, name, score))
+        for key, score, (i, _) in process.extract(norm(name), parts, scorer=spelling, limit=n) if len(parts) else []:
+            if score >= 0.95:
+                rows.append((i, name, min(score, 0.96)))
     if not rows:
         return pd.DataFrame(columns=list(places.columns) + ["query", "score"])
     hits = pd.DataFrame(rows, columns=["i", "query", "score"]).sort_values("score", ascending=False).drop_duplicates("i")
@@ -472,8 +482,12 @@ with left:
         st.caption("No suggestions for this incident: suggest.py has not reached it, or it failed (see the sidebar).")
     if len(sug):
         st.subheader("Suggestions")
+        # highlight the suggestion last chosen, while the label still matches it
+        current = st.session_state.get(key("precision")) or st.session_state.get(key("prec_pick"))
+        implied = {"in": AT_PLACE[0], "near": AT_PLACE[1], "area": AREA, "subdistrict": "subdistrict"}
         for o in sug[sug["rank"] > 0].itertuples():
-            on = bool(o.shrid2) and st.session_state[key("choice")] == o.shrid2
+            on = (st.session_state.get(key("suggestion")) == o.rank and current == implied.get(o.relation)
+                  and (o.relation in ("area", "subdistrict") or st.session_state[key("choice")] == o.shrid2))
             mark = " ★ model's pick" if o.model_pick else ""
             c_opt, c_g, c_o = st.columns([6, 1, 1], vertical_alignment="center")
             title = o.label or f"{o.relation} {o.name} · {o.source}"

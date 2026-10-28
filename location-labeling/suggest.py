@@ -103,10 +103,40 @@ def query_names(name):
     return list(dict.fromkeys([clean] + (parts if len(parts) > 1 else [])))
 
 
-def fuzzy(names, keys, limit):
-    """For the `limit` keys closest to each name, the best spelling similarity to any of the names."""
-    return {i: max(spelling(norm(q), keys[i]) for q in names)
-            for q in names for _, _, i in process.extract(norm(q), keys, scorer=spelling, limit=limit)}
+# words that qualify a village name rather than name it ("Bade Bacheli", "Kolhua Khurd")
+QUALIFIERS = {"bade", "bada", "badi", "bara", "bari", "chhota", "chota", "chhoti", "choti", "kalan", "khurd", "khas", "pina",
+              "pinna", "peda", "pedda", "chinna", "buzurg", "bujurg", "uparla", "nichla", "upper", "lower", "purana", "naya",
+              "alias", "tola", "toli", "para", "pada", "basti", "colony"}
+PART = 0.96  # similarity given to a name found as a whole word inside a longer one: close, but not the same name
+
+
+def name_parts(names):
+    """The words of multi-word names as extra keys, indexed like the names ("Bade Bacheli" -> "bacheli")."""
+    parts = [(i, norm(w)) for i, n in names.items() for w in re.split(r"[\s\-()/,]+", str(n))
+             if len(re.split(r"\s+", str(n).strip())) > 1 and len(norm(w)) >= 4 and norm(w) not in QUALIFIERS]
+    return pd.Series([w for _, w in parts], index=[i for i, _ in parts], dtype=str)
+
+
+def fuzzy(names, keys, limit, parts=None):
+    """For the `limit` keys closest to each name, the best spelling similarity to any of the names. With `parts`,
+    a name that is a whole word of a longer name also counts, at PART."""
+    out = {}
+    for q in names:
+        for _, sim, i in process.extract(norm(q), keys, scorer=spelling, limit=limit):
+            out[i] = max(out.get(i, 0.0), sim)
+        if parts is not None and len(parts):
+            for _, sim, i in process.extract(norm(q), parts, scorer=spelling, limit=limit):
+                if sim >= 0.95:
+                    out[i] = max(out.get(i, 0.0), min(sim, PART))
+    return out
+
+
+def station_places(names, keys, parts):
+    """SHRUG places a police station's name points to: exact or whole-word matches if any, else near spellings
+    ("Bacheli" -> Bade Bacheli, not Acheli; "Bandharia" -> Bhandaria)."""
+    hits = fuzzy(names, keys, 3, parts)
+    close = {i: sim for i, sim in hits.items() if sim >= 0.95}
+    return close or {i: sim for i, sim in hits.items() if sim >= 0.88}
 
 
 def km(lat1, lon1, lat2, lon2):
@@ -265,10 +295,12 @@ def candidates(inc, mentions, places, osm, areas):
     if district.empty:
         return [], mentions
     keys = district["name"].map(norm)
+    district_parts = name_parts(district["name"])
     subs = district.drop_duplicates("subdistrict_id")[["subdistrict_id", "subdistrict_name"]]
     district_names = {norm(inc["district"]), norm(inc["district_name_2011"])}
     state = places[places.state_id == inc["state_id"]]
     state_keys = state["name"].map(norm)
+    state_parts = name_parts(state["name"])
     district_name = state.drop_duplicates("district_id").set_index("district_id")["district_name"]
     osm_state = osm[osm.state_id == inc["state_id"]]
     osm_state_keys = osm_state["name"].map(norm)
@@ -294,13 +326,11 @@ def candidates(inc, mentions, places, osm, areas):
                     jurisdictions.setdefault(s["subdistrict_id"], f"named in the text (“{m['quote']}”)")
                     jurisdiction_why.setdefault(s["subdistrict_id"], f"The text names the block or mandal (“{m['quote']}”).")
         elif m["role"] == "jurisdiction" and m["kind"] not in ("district", "state"):
-            for q in query_names(m["name"]):
-                for _, sim, i in process.extract(norm(q), keys, scorer=spelling, limit=3):
-                    if sim >= 0.88:
-                        sid = district.loc[i, "subdistrict_id"]
-                        jurisdictions.setdefault(sid, f"where {m['name']} lies, a jurisdiction in the text (“{m['quote']}”)")
-                        jurisdiction_why.setdefault(sid, f"The text names {m['name']} as the jurisdiction (“{m['quote']}”), "
-                                                         f"and {m['name']} is in {sub_names.get(sid, 'that')} subdistrict.")
+            for i in station_places(query_names(m["name"]), keys, district_parts):
+                sid = district.loc[i, "subdistrict_id"]
+                jurisdictions.setdefault(sid, f"where {m['name']} lies, a jurisdiction in the text (“{m['quote']}”)")
+                jurisdiction_why.setdefault(sid, f"The text names {m['name']} as the jurisdiction (“{m['quote']}”), "
+                                                 f"and {m['name']} is in {sub_names.get(sid, 'that')} subdistrict.")
         if m["kind"] == "police station":
             exact = district[keys == norm(m["name"])]
             if len(exact):
@@ -321,11 +351,11 @@ def candidates(inc, mentions, places, osm, areas):
             notes.append("within 15 km of the named police station")
         return score, notes
 
-    def nearby(names, district_keys, state_keys):
+    def nearby(names, district_keys, state_keys, district_parts=None, state_parts=None):
         """Spelling matches in the district; if none is close (SURE), close ones elsewhere in the state."""
-        hits = {i: sim for i, sim in fuzzy(names, district_keys, 8).items() if sim >= MATCH}
+        hits = {i: sim for i, sim in fuzzy(names, district_keys, 8, district_parts).items() if sim >= MATCH}
         if max(hits.values(), default=0) < SURE:
-            hits.update({i: sim for i, sim in fuzzy(names, state_keys, 5).items()
+            hits.update({i: sim for i, sim in fuzzy(names, state_keys, 5, state_parts).items()
                          if sim >= SURE and i not in district_keys.index})
         return hits
 
@@ -392,20 +422,17 @@ def candidates(inc, mentions, places, osm, areas):
             continue
         if m["role"] == "jurisdiction" and m["kind"] != "mandal or block":
             # "under X Police Station": the subdistrict X lies in, not X itself (protocol rule 2)
-            for q in query_names(m["name"]):
-                for _, sim, i in process.extract(norm(q), keys, scorer=spelling, limit=3):
-                    if sim < 0.88:  # close enough to name the station's place ("Bandharia", "Bhandaria")
-                        continue
-                    p = district.loc[i]
-                    options.append({"relation": "subdistrict", "source": "SHRUG",
-                                    "name": str(p["subdistrict_name"]).title(), "shrid2": "",
-                                    "subdistrict_id": p["subdistrict_id"], "lat": None, "lon": None,
-                                    "score": sim + ROLE_WEIGHT["jurisdiction"], "query": m["name"],
-                                    "evidence": f"subdistrict of {p['name']}, a jurisdiction in the text (“{m['quote']}”)",
-                                    "label": f"{str(p['subdistrict_name']).title()} subdistrict",
-                                    "why": f"{said(m)} That names a jurisdiction, and {p['name']} is in {str(p['subdistrict_name']).title()} subdistrict (rule 2).",
-                                    "source_note": "SHRUG subdistrict" + ("" if sim >= 0.995 else f"; {p['name']} has {similarity(sim)} to “{m['name']}”") + "."})
-                    m["matched"] = f"SHRUG {sim:.2f} (jurisdiction)"
+            for i, sim in station_places(query_names(m["name"]), keys, district_parts).items():
+                p = district.loc[i]
+                options.append({"relation": "subdistrict", "source": "SHRUG",
+                                "name": str(p["subdistrict_name"]).title(), "shrid2": "",
+                                "subdistrict_id": p["subdistrict_id"], "lat": None, "lon": None,
+                                "score": sim + ROLE_WEIGHT["jurisdiction"], "query": m["name"],
+                                "evidence": f"subdistrict of {p['name']}, a jurisdiction in the text (“{m['quote']}”)",
+                                "label": f"{str(p['subdistrict_name']).title()} subdistrict",
+                                "why": f"{said(m)} That names a jurisdiction, and {p['name']} is in {str(p['subdistrict_name']).title()} subdistrict (rule 2).",
+                                "source_note": "SHRUG subdistrict" + ("" if sim >= 0.995 else f"; {p['name']} has {similarity(sim)} to “{m['name']}”") + "."})
+                m["matched"] = f"SHRUG {sim:.2f} (jurisdiction)"
             continue
         weight = ROLE_WEIGHT.get(m["role"], 0.0)
         relation = "in" if m["role"] == "where it happened" and m["kind"] in SETTLEMENT_KINDS else "near"
@@ -425,7 +452,7 @@ def candidates(inc, mentions, places, osm, areas):
         names = query_names(m["name"])
 
         # SHRUG villages and towns
-        hits = nearby(names, keys, state_keys)
+        hits = nearby(names, keys, state_keys, district_parts, state_parts)
         best = max(hits.values(), default=0.0)
         for i, sim in sorted(hits.items(), key=lambda x: -x[1]):
             if sim < best - NEAR_SPELLING:
@@ -484,6 +511,11 @@ def candidates(inc, mentions, places, osm, areas):
                                            + f", {similarity(sim)}" + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
         if obest:
             m["matched"] += (" · " if m["matched"] else "") + f"OpenStreetMap {obest:.2f}"
+
+    # an OpenStreetMap village that SHRUG already offers under the same name within 5 km is the same place
+    shrug = [(norm(o["name"]), o["lat"], o["lon"]) for o in options if o["source"] == "SHRUG" and o["lat"] is not None]
+    options = [o for o in options if not (o["source"] == "OpenStreetMap" and o["relation"] in ("in", "near") and any(
+        n == norm(o["name"]) and km(o["lat"], o["lon"], la, lo) <= 5 for n, la, lo in shrug))]
 
     # one option per place: keep the best-scoring
     seen, out = set(), []
