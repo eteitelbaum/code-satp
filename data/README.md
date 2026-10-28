@@ -34,6 +34,9 @@ For the full rules, see the coding manual and the description of the coding proc
 | `wrangle_satp.qmd` | Cleans the coded data; writes `satp_clean.csv` and `random_300.csv` |
 | `satp_clean.csv` | Cleaned incident-level data, one row per incident |
 | `satp_duplicates.csv` | Rows dropped as duplicates, kept for recoding |
+| `check_dates.R` | Lists incidents whose date disagrees with the date in the incident number; writes `date_corrections.csv` |
+| `satp_dates.csv` | Dates settled from SATP's text (written by `location-labeling/satp_dates.py`) |
+| `summary_corrections.csv` | Summaries replaced because they held text from another event |
 | `select_vars_for_models.qmd` | Writes one CSV per modeling task from `satp_clean.csv` |
 | `perpetrator.csv`, `action_type.csv`, `target_type.csv` | Classification tasks |
 | `deaths.csv`, `injuries.csv`, `arrests.csv`, `surrenders.csv`, `abductions.csv`, `property_damage.csv` | Count and extraction tasks |

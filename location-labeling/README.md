@@ -11,6 +11,7 @@ Rscript location-labeling/build_lookup.R              # SHRUG lookup tables and 
 python location-labeling/draw_sample.py               # incidents to label
 python location-labeling/fetch_satp.py                # SATP monthly pages (cached locally)
 python location-labeling/link_satp.py                 # link each incident to its SATP entry
+python location-labeling/satp_dates.py                # dates settled from SATP (#10)
 streamlit run location-labeling/app.py                # labeling app
 ```
 
@@ -22,8 +23,9 @@ streamlit run location-labeling/app.py                # labeling app
 | `district_overrides.csv` | Hand fixes to the district crosswalk |
 | `draw_sample.py` | Reproduces the temporal split of the location models and orders the validation and test incidents that name a place below the district |
 | `fetch_satp.py` | Fetches SATP's monthly Maoist-insurgency pages for the sample's months and the date checks (#10), one at a time, and splits them into entries |
-| `link_satp.py` | Links each sample incident to its SATP entry by word overlap with the coded summary, within a few days of its date |
-| `satp_link_review.csv` | Hand decisions on links the matching could not settle: the entry, any further entries the summary draws on, or "not found" |
+| `link_satp.py` | Links each sample incident, and each date discrepancy in `data/date_corrections.csv`, to its SATP entry by word overlap with the coded summary, within a few days of its date |
+| `satp_link_review.csv` | Hand decisions on links the matching could not settle: the entry, any further entries the summary draws on, or "not found"; and the date, where SATP's is wrong |
+| `satp_dates.py` | Takes SATP's date for the date discrepancies and for sample incidents a day off from SATP; writes `data/satp_dates.csv` |
 | `app.py` | The labeling app; labels save to `labels/labels.csv` |
 
 Generated data (`data/`, including SATP's pages and text) and labels (`labels/`) are not committed.

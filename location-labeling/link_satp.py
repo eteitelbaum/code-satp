@@ -1,4 +1,7 @@
-"""Link each sample incident to its SATP entry (GitHub #8).
+"""Link each sample incident, and each date discrepancy, to its SATP entry (GitHub #8, #10).
+
+The incidents are the location sample and the incidents in data/date_corrections.csv
+(split "date check" when they are not in the sample).
 
 Candidates are the entries dated within WINDOW days of the incident's date or of
 the date encoded in its incident number (the two disagree for misdated incidents,
@@ -46,8 +49,15 @@ def id_date(incident_number):
 
 
 sample = pd.read_csv("location-labeling/data/sample.csv", dtype=str)
-sample["date"] = pd.to_datetime(sample["date"])
-sample["id_date"] = sample["incident_number"].map(id_date)
+fixes = pd.read_csv("data/date_corrections.csv", dtype=str)
+fixes = fixes[~fixes["incident_number"].isin(sample["incident_number"])]
+summaries = pd.read_csv("data/satp_clean.csv", dtype=str, usecols=["incident_number", "incident_summary"])
+checks = fixes.merge(summaries, on="incident_number").rename(columns={"date_entered": "date"})
+checks["split"] = "date check"
+cols = ["split", "order", "incident_number", "date", "incident_summary"]
+incidents = pd.concat([sample, checks], ignore_index=True)[cols]
+incidents["date"] = pd.to_datetime(incidents["date"])
+incidents["id_date"] = incidents["incident_number"].map(id_date)
 
 entries = pd.read_csv("location-labeling/data/satp_entries.csv", dtype=str)
 entries["date"] = pd.to_datetime(entries["date"])
@@ -56,9 +66,10 @@ entries["words"] = entries["text"].map(words)
 # --- score the candidates for each incident ---
 def score(inc, summary, days):
     window = pd.Timedelta(days=days)
-    near = (entries["date"] - inc.date).abs() <= window
-    if pd.notna(inc.id_date):
-        near |= (entries["date"] - inc.id_date).abs() <= window
+    near = pd.Series(False, index=entries.index)
+    for d in (inc.date, inc.id_date):
+        if pd.notna(d):
+            near |= (entries["date"] - d).abs() <= window
     cands = entries[near]
     scores = sorted(
         ((len(summary & e.words) / len(summary), e.Index) for e in cands.itertuples()),
@@ -68,14 +79,14 @@ def score(inc, summary, days):
 
 
 rows = []
-for inc in sample.itertuples():
+for inc in incidents.itertuples():
     summary = words(inc.incident_summary)
     cands, scores = score(inc, summary, WINDOW)
     if not scores or scores[0][0] < MATCH:
         cands, scores = score(inc, summary, WIDE)
     row = {
         "split": inc.split, "order": inc.order, "incident_number": inc.incident_number,
-        "date": inc.date.date(), "id_date": inc.id_date.date() if pd.notna(inc.id_date) else None,
+        "date": inc.date.date() if pd.notna(inc.date) else None, "id_date": inc.id_date.date() if pd.notna(inc.id_date) else None,
         "n_candidates": len(cands),
     }
     if scores:
@@ -104,6 +115,7 @@ links.loc[links["n_candidates"] == 0, "status"] = "no candidates"
 
 # --- apply the hand review ---
 review = pd.read_csv("location-labeling/satp_link_review.csv", dtype=str).set_index("incident_number")
+review = review[review.index.isin(incidents["incident_number"])]
 entry_cols = ["entry_month", "entry_id", "entry_date", "overlap", "runner_up", "url"]
 links = links.set_index("incident_number")
 links[["also", "note"]] = review[["also", "note"]]
@@ -112,7 +124,7 @@ for n, r in review.iterrows():
     links.loc[n, "status"] = f"reviewed: {r['decision']}"
     if pd.notna(r["entry_id"]):
         e = entries[(entries["month"] == r["entry_month"]) & (entries["entry_id"] == r["entry_id"])].iloc[0]
-        summary = words(sample.loc[sample["incident_number"] == n, "incident_summary"].iloc[0])
+        summary = words(incidents.loc[incidents["incident_number"] == n, "incident_summary"].iloc[0])
         links.loc[n, ["entry_month", "entry_id", "entry_date", "url"]] = [e["month"], e["entry_id"], e["date"].date(), e["url"]]
         links.loc[n, "overlap"] = round(len(summary & e["words"]) / len(summary), 3)
 links = links.reset_index()

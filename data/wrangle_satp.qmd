@@ -317,12 +317,17 @@ satp_removed_whitespace <- satp_recoded_property_damage |>
   mutate(across(where(is.character), ~str_trim(.)))
 ```
 
-Correct the incident dates that are clearly wrong (issue #10). `check_dates.R` compares each date with the date encoded in the incident number and the `year` column, and lists the dates to use in `date_corrections.csv`: 23 wrong years, one day and month swapped, and one date typed as text. Dates that disagree with the incident number by days or months stay as entered until the incidents are linked to their SATP entries (#3).
+Correct the incident dates (issue #10). `check_dates.R` compares each date with the date encoded in the incident number and the `year` column and writes `date_corrections.csv`. Where the SATP entry was found, `location-labeling/satp_dates.py` takes SATP's date (`satp_dates.csv`); that covers most of the discrepancies, plus location-sample incidents dated a day off from SATP. Otherwise the clear fixes in `date_corrections.csv` apply (wrong year, day and month swapped, date typed as text). Incident numbers are not changed.
 
 ```{r}
+satp_dates <- read_csv("data/satp_dates.csv", col_types = cols(incident_number = "d", satp_date = "D")) |>
+  select(incident_number, date_to_use = satp_date)
+
 date_fixes <- read_csv("data/date_corrections.csv", col_types = cols(incident_number = "d", date_to_use = "D")) |>
   filter(source == "incident number and year column") |>
-  select(incident_number, date_to_use)
+  select(incident_number, date_to_use) |>
+  anti_join(satp_dates, by = "incident_number") |>
+  bind_rows(satp_dates)
 
 satp_fixed_dates <- satp_removed_whitespace |>
   left_join(date_fixes, by = "incident_number") |>
@@ -330,10 +335,20 @@ satp_fixed_dates <- satp_removed_whitespace |>
   select(-date_to_use)
 ```
 
+Replace two summaries that hold text from other events (`summary_corrections.csv`). This comes after duplicate removal, so it does not change which rows are dropped.
+
+```{r}
+summary_fixes <- read_csv("data/summary_corrections.csv", col_types = cols(incident_number = "d")) |>
+  select(incident_number, incident_summary)
+
+satp_fixed_summaries <- satp_fixed_dates |>
+  rows_update(summary_fixes, by = "incident_number")
+```
+
 Now let's have a final look at the cleaned data and write it to a CSV gile
 
 ```{r}
-satp_final <- satp_fixed_dates
+satp_final <- satp_fixed_summaries
 
 write_csv(satp_final, "data/satp_clean.csv")
 

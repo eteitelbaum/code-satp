@@ -1,4 +1,4 @@
-incident_number,decision,entry_month,entry_id,also,note
+incident_number,decision,entry_month,entry_id,also,note,date
 308201601,not found,,,,
 312251501,confirmed,2015-12,ll91,,SATP dates the report (Dec 29); text says abducted Dec 25
 301131601,not found,,,,
@@ -28,7 +28,7 @@ incident_number,decision,entry_month,entry_id,also,note
 110131501,confirmed,2015-10,ll51,,ll52 is a second report of the same event
 1407081501,confirmed,2015-07,ll46,,SATP dates the report (Jul 12); text says July 8
 1506071501,not found,,,,
-1202181501,relinked,2016-04,ll91,,"SATP files it under April 2016, but the coded April 18, 2015 is right: the arrest follows the April 12, 2015 Chhote Baithiya gunbattle (304121501)"
+1202181501,relinked,2016-04,ll91,,"SATP files it under April 2016, but the coded April 18, 2015 is right: the arrest follows the April 12, 2015 Chhote Baithiya gunbattle (304121501)",2015-04-18
 304121501,confirmed,2015-05,ll67,,SATP files it under May 12; its text says April 12
 1808301501,confirmed,2015-08,ll96,,SATP text says August 28; coded August 30
 205161501,not found,,,,
@@ -43,7 +43,7 @@ incident_number,decision,entry_month,entry_id,also,note
 1001251501,relinked,2015-01,ll140,2015-01 ll156,summary merges two entries
 1902231501,relinked,2015-02,ll103,,"coded fields describe this Sonbhadra arms recovery; the summary is a different event (TRS leaders released in Khammam, November 2015; #13)"
 301221501,confirmed,2015-01,ll123,,killing on Jan 24; coded date is the abduction (Jan 22)
-204031501,relinked,2016-04,ll11,,"SATP files it under April 2016, but the coded April 3, 2015 is right: Shivdeep Lande was Rohtas SP in 2015 and STF SP by January 2016"
+204031501,relinked,2016-04,ll11,,"SATP files it under April 2016, but the coded April 3, 2015 is right: Shivdeep Lande was Rohtas SP in 2015 and STF SP by January 2016",2015-04-03
 812031501,not found,,,,
 807071501,confirmed,2015-07,ll32,,coded date is the arrest (Jul 7); seizure Jul 9
 301061501,not found,,,,
@@ -57,3 +57,6 @@ incident_number,decision,entry_month,entry_id,also,note
 1002161501,confirmed,2015-02,ll77,,SATP text says February 18; coded February 16
 802051501,not found,,,,
 304121503,relinked,2015-04,ll46,,short entry; ties with unrelated entries
+110231401,not found,,,,best candidate is a different arrest (Kovasi Iduma not Kovasi Joga)
+808191003,not found,,,,best candidate is the earlier killing this one retaliated for
+811191601,confirmed,2016-11,ll114,,"encounter on November 29; SATP text first gives the date of the police claim (November 30)",2016-11-29
