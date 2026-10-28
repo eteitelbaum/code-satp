@@ -8,3 +8,4 @@ requests
 openai
 pydantic
 python-dotenv
+osmium

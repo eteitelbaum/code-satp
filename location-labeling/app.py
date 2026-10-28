@@ -49,7 +49,7 @@ LABEL_COLUMNS = [
     "subdistrict_name", "state_id", "district_id_2011", "place_type", "reason", "found_via",
     "preselected", "preselect_source", "confirmed", "pin_consulted", "located_lat", "located_lon", "located_match",
     "point_lat", "point_lon", "point_source", "unit_type", "unit_id", "unit_name", "suggestion_rank", "model_pick_rank",
-    "summary_cut_off", "skip_reason", "notes", "labeler", "labeled_at",
+    "suggestion_run", "summary_cut_off", "skip_reason", "notes", "labeler", "labeled_at",
 ]
 
 # words that describe a place rather than name it
@@ -740,6 +740,7 @@ with right:
                 "point_lat": f"{point[0]:.6f}" if point else "", "point_lon": f"{point[1]:.6f}" if point else "",
                 "point_source": point_source, "unit_type": unit_type, "unit_id": unit_id, "unit_name": unit_name,
                 "suggestion_rank": suggestion_rank, "model_pick_rank": model_pick_rank,
+                "suggestion_run": sug["run"].iloc[0] if len(sug) and "run" in sug else "",  # which suggest.py run was shown
                 "summary_cut_off": str(cut_off), "notes": notes, "labeler": labeler, "labeled_at": datetime.now().isoformat(timespec="seconds"),
             })
             next_unlabeled()

@@ -12,6 +12,7 @@ python location-labeling/draw_sample.py               # incidents to label
 python location-labeling/fetch_satp.py                # SATP monthly pages (cached locally)
 python location-labeling/link_satp.py                 # link each incident to its SATP entry
 python location-labeling/satp_dates.py                # dates settled from SATP (#10)
+python location-labeling/build_osm.py                 # OpenStreetMap's named places (download India from Geofabrik first; see the script)
 python location-labeling/suggest.py validation        # model suggestions for the app (#9; needs OPENAI_API_KEY in .env)
 streamlit run location-labeling/app.py                # labeling app
 ```
@@ -27,7 +28,8 @@ streamlit run location-labeling/app.py                # labeling app
 | `link_satp.py` | Links each sample incident, and each date discrepancy in `data/date_corrections.csv`, to its SATP entry by word overlap with the coded summary, within a few days of its date |
 | `satp_link_review.csv` | Hand decisions on links the matching could not settle: the entry, any further entries the summary draws on, or "not found"; and the date, where SATP's is wrong |
 | `satp_dates.py` | Takes SATP's date for the date discrepancies and for sample incidents a day off from SATP; writes `data/satp_dates.csv` |
-| `suggest.py` | Suggestions for the app: GPT-4o-mini lists the places in the text and their roles; each is matched to SHRUG villages, towns, and subdistricts (OpenStreetMap for places SHRUG lacks); the top five options are ranked by spelling and context, and the model picks one with a reason. Model calls and lookups are cached in `data/suggest/` |
+| `build_osm.py` | OpenStreetMap's named settlements, forests, and hills in the study states, under every Latin-script name, each tied to the SHRUG village and subdistrict it falls in; writes `data/osm_places.parquet` |
+| `suggest.py` | Suggestions for the app: GPT-4o-mini lists the places in the text and their roles; each is matched by spelling to SHRUG villages, towns, and subdistricts (and to OpenStreetMap's places when SHRUG has nothing close); the top five options are ranked by spelling and context, and the model picks one with a reason. Model calls are cached in `data/suggest/`; each run's outputs are kept in `data/suggest/runs/`, and each label records the run it saw |
 | `app.py` | The labeling app; labels save to `labels/labels.csv` |
 
 Generated data (`data/`, including SATP's pages and text) and labels (`labels/`) are not committed.
@@ -58,4 +60,4 @@ What to record:
 
 ## Sources
 
-Village and town boundaries and names: SHRUG (Asher, Lunt, Matsuura, and Novosad 2021), CC BY-NC-SA 4.0. Incident reports: [South Asia Terrorism Portal](https://www.satp.org); see SATP's [terms of use](https://www.satp.org/disclaimer).
+Village and town boundaries and names: SHRUG (Asher, Lunt, Matsuura, and Novosad 2021), CC BY-NC-SA 4.0. Hamlets, localities, forests, and hills: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, ODbL, via [Geofabrik](https://download.geofabrik.de/asia/india.html). Incident reports: [South Asia Terrorism Portal](https://www.satp.org); see SATP's [terms of use](https://www.satp.org/disclaimer).
