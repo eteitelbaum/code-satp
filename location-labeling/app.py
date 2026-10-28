@@ -28,6 +28,8 @@ SAMPLE_FILE = ROOT / "data" / "sample.csv"
 PLACES_FILE = ROOT / "data" / "places.parquet"
 SHAPES_FILE = ROOT / "data" / "place_shapes.parquet"
 LABELS_FILE = ROOT / "labels" / "labels.csv"
+LINKS_FILE = ROOT / "data" / "satp_links.csv"  # from link_satp.py
+ENTRIES_FILE = ROOT / "data" / "satp_entries.csv"  # from fetch_satp.py
 
 PRECISIONS = ["in a village or town", "near a village or town", "subdistrict", "district", "state or unknown"]
 AT_PLACE = PRECISIONS[:2]  # precisions that name a SHRUG place
@@ -80,6 +82,21 @@ def load_places():
 def district_places(state_id, district_id):
     places = load_places()
     return places[(places.state_id == state_id) & (places.district_id == district_id)].reset_index(drop=True)
+
+
+@st.cache_data
+def load_satp():
+    """SATP entries for each linked incident: {incident_number: (texts, page url, shared with another incident)}."""
+    if not (LINKS_FILE.exists() and ENTRIES_FILE.exists()):
+        return {}
+    entries = pd.read_csv(ENTRIES_FILE, dtype=str)
+    text = dict(zip(zip(entries["month"], entries["entry_id"]), entries["text"]))
+    links = pd.read_csv(LINKS_FILE, dtype=str).dropna(subset=["entry_id"]).fillna("")
+    satp = {}
+    for r in links.itertuples():
+        keys = [(r.entry_month, r.entry_id)] + [tuple(a.split()) for a in r.also.split(";") if a]
+        satp[r.incident_number] = ([text[k] for k in keys], r.url, r.shared_entry == "True")
+    return satp
 
 
 def load_labels():
@@ -221,10 +238,17 @@ def preselect(inc, places):
     return "", ""
 
 
+def coder_recorded(name, coded):
+    """Whether a place name in the text is one the coders recorded."""
+    k = norm(name)
+    return any(k in norm(c) or norm(c) in k for c in coded if norm(c))
+
+
 def highlight(text, coded, shrug_names):
+    """Yellow: names the coders recorded. Green: other SHRUG places in the text, which the coders did not record."""
     out = html.escape(text)
-    for name in sorted(shrug_names, key=len, reverse=True):
-        out = re.sub(rf"\b({re.escape(html.escape(name))})\b", r"<span style='border-bottom:2px solid #2b6cb0'>\1</span>", out, flags=re.I)
+    for name in sorted({n for n in shrug_names if not coder_recorded(n, coded)}, key=len, reverse=True):
+        out = re.sub(rf"\b({re.escape(html.escape(name))})\b", r"<mark style='background:#c6f6d5'>\1</mark>", out, flags=re.I)
     for name in sorted(coded, key=len, reverse=True):
         out = re.sub(rf"({re.escape(html.escape(name))})", r"<mark>\1</mark>", out, flags=re.I)
     return out
@@ -234,6 +258,7 @@ def highlight(text, coded, shrug_names):
 
 sample = load_sample()
 labels = load_labels()
+satp = load_satp()
 done = set(labels.incident_number)
 
 with st.sidebar:
@@ -272,7 +297,11 @@ existing = existing.iloc[0] if len(existing) else None
 places = district_places(inc["state_id"], inc["district_id_2011"]) if inc["district_id_2011"] else load_places().iloc[0:0]
 names = query_names(inc)
 cands = shortlist(places, names)
-in_text = names_in_text(places, inc["incident_summary"])
+satp_texts, satp_page, shared = satp.get(iid, ([], "", False))
+text = "\n\n".join(satp_texts) or inc["incident_summary"]  # SATP's text, or the coded summary when it is not on SATP
+in_text = names_in_text(places, text)
+# "Dantewada District" names a district, not the town; keep a name only if it also appears without "District"
+in_text = in_text[[bool(re.search(rf"\b{re.escape(n)}\b(?!\s+district)", text, flags=re.I)) for n in in_text["name"]]]
 # "Warangal District" names the district, not the town of Warangal
 in_text = in_text[~in_text["key"].isin({norm(inc["district"]), norm(inc["district_name_2011"])})]
 pre_shrid, pre_source = preselect(inc, places)
@@ -300,16 +329,26 @@ st.markdown(f"### {inc['district']}, {inc['state']}  <span style='font-size:0.7e
 left, right = st.columns([3, 2])
 
 with left:
-    st.markdown(
-        f"<div style='font-size:1.1em;line-height:1.6'>{highlight(inc['incident_summary'], names, in_text['name'].tolist())}</div>",
-        unsafe_allow_html=True,
-    )
-    if not re.search(r"[.!?\"'”’)\]]$", inc["incident_summary"].strip()):
-        st.warning("This summary may be cut off (no final punctuation). Check the SATP source page for the full entry.")
+    shrug_in_text = in_text["name"].tolist()
+    show = lambda t: st.markdown(f"<div style='font-size:1.1em;line-height:1.6'>{highlight(t, names, shrug_in_text)}</div>",
+                                 unsafe_allow_html=True)
+    if satp_texts:
+        st.caption("SATP entry" + (" (the coded summary draws on several entries)" if len(satp_texts) > 1 else ""))
+        for t in satp_texts:
+            show(t)
+        if shared:
+            st.info("This SATP entry covers more than one coded incident: the coded summary below shows which one this is.")
+        with st.expander("Coded summary", expanded=shared):
+            show(inc["incident_summary"])
+    else:
+        st.info("Not on SATP's current pages: the coded summary is the only text.")
+        show(inc["incident_summary"])
+        if not re.search(r"[.!?\"'”’)\]]$", inc["incident_summary"].strip()):
+            st.warning("This summary may be cut off (no final punctuation).")
     st.caption(f"Coded village: **{inc['village_name'] or '—'}** · other locations: **{inc['other_locations'] or '—'}**  "
-               "· yellow = coded names, underlined = SHRUG names in this district")
+               "· yellow = names the coders recorded · green = places in the text the coders did not record")
     gq = quote_plus(f"{names[0] if names else ''} {inc['district']} {inc['state']} India")
-    st.markdown(f"[SATP source page]({inc['satp_url']}) · [Google Maps](https://www.google.com/maps/search/{gq})")
+    st.markdown(f"[SATP page]({satp_page or inc['satp_url']}) · [Google Maps](https://www.google.com/maps/search/{gq})")
 
     st.subheader("Candidates")
     st.caption("Ranked by how closely the spelling matches a coded name (1.00 = same spelling); this is not a probability.")
@@ -318,7 +357,10 @@ with left:
     shown = collapse_towns(shown, groups)
     for _, p in shown.iterrows():
         is_on = st.session_state[key("choice")] == p["shrid2"]
-        why = "named in the text" if not p["query"] else f"spelling match to “{p['query']}” {p['score']:.2f}"
+        if p["query"]:
+            why = f"spelling match to “{p['query']}” {p['score']:.2f}"
+        else:
+            why = "named in the text" + ("" if coder_recorded(p["name"], names) else ", not recorded by the coders")
         label = f"{'● ' if is_on else ''}{p['label']} · {why}"
         if st.button(label, key=key(f"c_{p['shrid2']}"), type="primary" if is_on else "secondary"):
             st.session_state[key("choice")] = p["shrid2"]
