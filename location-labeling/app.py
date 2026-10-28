@@ -627,24 +627,37 @@ with right:
         show_pin = False
         st.caption("No pin: the India team entered no coordinates for this incident.")
     choice = st.session_state[key("choice")]
+    # the suggestions as numbered pins; the shortlist of names like the coders' fainter behind them
+    sug_pts = sug[(sug["rank"] > 0) & sug["lat"].notna()] if len(sug) else sug.iloc[0:0]
+    sug_pts = pd.DataFrame({"shrid2": sug_pts["shrid2"], "name": sug_pts["rank"].astype(int).astype(str) + ". " + sug_pts["name"],
+                            "lon": sug_pts["lon"].astype(float), "lat": sug_pts["lat"].astype(float), "kind": "suggestion"})
     pts = shown[["shrid2", "name", "lon", "lat"]].assign(kind="candidate")
+    pts = pts[~pts.shrid2.isin(set(sug_pts.shrid2) - {""})]
+    pts = pd.concat([pts, sug_pts])
     if choice and choice not in set(pts.shrid2):
         pts = pd.concat([pts, members(pool, choice)[["shrid2", "name", "lon", "lat"]].assign(kind="candidate")])
-    pts.loc[pts.shrid2 == choice, "kind"] = "selected"
+    pts.loc[(pts.shrid2 == choice) & (pts.shrid2 != ""), "kind"] = "selected"
     if (located := st.session_state.get(key("located"))) and located[0] is not None:
         pts = pd.concat([pts, pd.DataFrame([{"shrid2": "", "name": "your point", "lon": located[1], "lat": located[0], "kind": "located"}])])
     if show_pin and inc["latitude"]:
         pts = pd.concat([pts, pd.DataFrame([{"shrid2": "", "name": "pin", "lon": float(inc["longitude"]), "lat": float(inc["latitude"]), "kind": "pin"}])])
-    colors = {"candidate": [43, 108, 176, 180], "selected": [221, 107, 32, 230], "pin": [200, 30, 30, 230],
-              "located": [34, 139, 34, 230]}
+    colors = {"candidate": [43, 108, 176, 90], "suggestion": [106, 61, 154, 230], "selected": [221, 107, 32, 230],
+              "pin": [200, 30, 30, 230], "located": [34, 139, 34, 230]}
     pts["color"] = pts["kind"].map(colors)
+    pts["text_color"] = [[120, 120, 120, 200] if k == "candidate" else [20, 20, 20, 255] for k in pts["kind"]]
     # outlines of the forests and sanctuaries among the suggestions (protocol rule 4)
     outlines = load_areas()
     area_sug = sug[(sug["relation"] == "area") & sug["osm_id"].isin(outlines)].drop_duplicates("osm_id") if len(sug) else sug
     features = [{"type": "Feature", "properties": {"name": o.name.split(",")[0]},
                  "geometry": json.loads(shapely.to_geojson(shapely.from_wkb(outlines[o.osm_id])))} for o in area_sug.itertuples()]
-    if len(pts):
-        view = pdk.ViewState(latitude=pts.lat.mean(), longitude=pts.lon.mean(), zoom=9)
+    # fit the view to what matters: the suggestions, the selected place, your point, and the pin when shown
+    focus = pts[pts["kind"] != "candidate"]
+    focus = focus if len(focus) else pts
+    if len(focus):
+        lat0, lat1, lon0, lon1 = focus.lat.min(), focus.lat.max(), focus.lon.min(), focus.lon.max()
+        span = max(lat1 - lat0, (lon1 - lon0) * math.cos(math.radians((lat0 + lat1) / 2)), 0.03)
+        view = pdk.ViewState(latitude=(lat0 + lat1) / 2, longitude=(lon0 + lon1) / 2,
+                             zoom=max(4, min(11, math.log2(390 / span))))  # 420 px tall map, with a margin
     else:
         view = pdk.ViewState(latitude=21, longitude=82, zoom=4)
     st.pydeck_chart(pdk.Deck(
@@ -652,10 +665,13 @@ with right:
             pdk.Layer("GeoJsonLayer", {"type": "FeatureCollection", "features": features}, stroked=True, filled=True,
                       get_fill_color=[34, 139, 34, 40], get_line_color=[34, 110, 34, 220], line_width_min_pixels=2, pickable=True),
             pdk.Layer("ScatterplotLayer", pts, get_position="[lon, lat]", get_fill_color="color", get_radius=600, pickable=True),
-            pdk.Layer("TextLayer", pts, get_position="[lon, lat]", get_text="name", get_size=13, get_pixel_offset=[0, -14]),
+            pdk.Layer("TextLayer", pts, get_position="[lon, lat]", get_text="name", get_size=13, get_color="text_color",
+                      get_pixel_offset=[0, -14]),
         ],
         initial_view_state=view, tooltip={"text": "{name}"}, map_style=None,
     ), height=420)
+    st.caption("Purple: suggestions (numbered) · orange: selected · green: your point and forest outlines · red: the India team's pin "
+               "· faint blue: other places named like the coders' entries")
     if pre_shrid:
         st.info(f"Pre-selected ({pre_source}): {labels_by_shrid.get(pre_shrid, pre_shrid)}. Confirm or change it.")
 
