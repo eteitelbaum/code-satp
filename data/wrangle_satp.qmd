@@ -354,21 +354,3 @@ write_csv(satp_final, "data/satp_clean.csv")
 
 glimpse(satp_final)
 ```
-
-## Create df with 400 randomly sampled events
-
-
-Not rerun: the sample was drawn without a seed, so rerunning would replace `random_300.csv`.
-
-```{r}
-#| eval: false
-library(readr)
-library(dplyr)
-
-clean_data <- read_csv("data/satp_clean.csv")
-
-random_300 <- clean_data |> 
-  slice_sample(n = 300, replace = FALSE)
-
-write_csv(random_300, "data/random_300.csv")
-```

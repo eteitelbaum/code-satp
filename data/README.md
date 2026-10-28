@@ -24,14 +24,13 @@ For the full rules, see the coding manual and the description of the coding proc
 - **Incident numbers** are stored as numbers in the CSV files, so the leading zero of state codes 01–09 is dropped (e.g., `0101070701` appears as `101070701`).
 - **Dates** are accurate to about a day. Where a coded date differs from SATP's, the coders often dated a different stage of the same event (the abduction rather than the killing, the encounter rather than a later death), and SATP sometimes files an entry under the wrong day, month, or year. Corrections are tracked in issue #10.
 - **Duplicate removal.** `wrangle_satp.qmd` drops every row whose summary text appears more than once (808 of 10,729 rows), leaving 9,921 incidents. Most of these are reports the coders split into several incidents, or incidents coded twice. They are kept in `satp_duplicates.csv` for recoding.
-- **Known issue.** In `satp_classification.csv` and `random_300.csv`, the `latitude` and `longitude` columns are swapped.
 
 ## Files
 
 | File | Contents |
 |---|---|
 | `satp-dataset.xlsx` | The coded data as entered (sheet `analysis`) |
-| `wrangle_satp.qmd` | Cleans the coded data; writes `satp_clean.csv` and `random_300.csv` |
+| `wrangle_satp.qmd` | Cleans the coded data; writes `satp_clean.csv` |
 | `satp_clean.csv` | Cleaned incident-level data, one row per incident |
 | `satp_duplicates.csv` | Rows dropped as duplicates, kept for recoding |
 | `check_dates.R` | Lists incidents whose date disagrees with the date in the incident number; writes `date_corrections.csv` |
@@ -44,7 +43,6 @@ For the full rules, see the coding manual and the description of the coding proc
 | `location_info_augmented.csv` | Location fields with block and other areas combined, used by the current location models |
 | `satp_location_matched.csv`, `satp_location_matched_lat_long.csv` | Earlier location training data |
 | `satp_classification.csv` | Earlier export of the cleaned data |
-| `random_300.csv` | Random sample of 300 incidents |
 | `gemma_counts_output.csv` | Count extraction output from Gemma |
 | `shrid_loc_names.csv` | SHRUG Census 2011 place names (CC BY-NC-SA 4.0) |
 
