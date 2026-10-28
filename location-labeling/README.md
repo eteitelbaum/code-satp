@@ -32,18 +32,19 @@ Generated data (`data/`, including SATP's pages and text) and labels (`labels/`)
 
 ## Labeling protocol
 
-For each incident, record **where the event happened**, as precisely as the report allows: **in** a village or town, **near** a village or town, or, failing that, the subdistrict or district. The SATP coding manual covers state and district only; these rules are new for this answer set.
+For each incident, record **where the event happened**, as precisely as the report allows: **in** a village or town, **near** a village or town, or, failing that, the subdistrict or district. Choose the most specific place the report supports before falling back to the subdistrict. The SATP coding manual covers state and district only; these rules are new for this answer set.
 
 1. **Label where the event happened**, not where victims lived, where forces came from, or where bodies were taken.
-2. **Police stations, camps, colonies, markets, neighborhoods:** **in** the village or town they sit in. For a town listed in several subdistrict parts, choose the part if you can tell, otherwise the whole town.
-3. **"Near X," or a forest, hill, or river tied to X:** **near** X.
+2. **Events at police stations, camps, colonies, markets, neighborhoods:** **in** the village or town they sit in. For a town listed in several subdistrict parts, choose the part if you can tell, otherwise the whole town. "Under X Police Station (limits)" names the station's jurisdiction, not the place: use it to choose the subdistrict only when the report names nothing more specific.
+3. **"Near X," or a forest, hill, or river tied to or named after X** (e.g., "Karlapat forest"): **near** X.
 4. **Forests, hills, or areas not tied to a named place:** the subdistrict, or the district if that is all the report supports.
-5. **Places SHRUG does not list:** find the spot on a map and paste its coordinates into **Locate by coordinates**. Use the map to find where a place is and the SHRUG name to choose the unit: if a nearby SHRUG village has the matching name, choose it; otherwise take the village or town that contains the point.
-6. **Several plausible candidates within a few kilometers:** pick the one with the best evidence and record the alternative in the notes. Use the subdistrict only when you cannot place the event that closely.
-7. **The hand-entered pin:** decide without it first, and note whether it changed your answer.
-8. **Hard cases:** say what you were unsure about in the notes.
-9. **Order:** the app serves incidents in the sample's random order, so labels so far are a random subset. You can go back to earlier incidents, but not ahead.
-10. **Skipping:** only when an incident cannot be labeled (not a single incident, or the text does not describe the coded event), with the reason recorded. Skipped incidents count in the denominator.
+5. **Places SHRUG does not list:** find the spot on a map and paste its coordinates into **Locate by coordinates**, and choose the SHRUG place the report names, if any, as the place the event was in or near.
+6. **Point and unit:** each label saves a point for mapping (your pasted point, or else the chosen place's location) and a unit for analysis, taken from the point: the village or town it falls in, or the subdistrict when it falls outside every village (often reserved forest). The app shows both before you save.
+7. **Several plausible candidates within a few kilometers:** pick the one with the best evidence and record the alternative in the notes. Use the subdistrict only when you cannot place the event that closely.
+8. **The hand-entered pin:** decide without it first, and note whether it changed your answer.
+9. **Hard cases:** say what you were unsure about in the notes.
+10. **Order:** the app serves incidents in the sample's random order, so labels so far are a random subset. You can go back to earlier incidents, but not ahead.
+11. **Skipping:** only when an incident cannot be labeled (not a single incident, or the text does not describe the coded event), with the reason recorded. Skipped incidents count in the denominator.
 
 What to record:
 

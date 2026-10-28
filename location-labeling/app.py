@@ -27,6 +27,7 @@ ROOT = Path(__file__).parent
 SAMPLE_FILE = ROOT / "data" / "sample.csv"
 PLACES_FILE = ROOT / "data" / "places.parquet"
 SHAPES_FILE = ROOT / "data" / "place_shapes.parquet"
+SUBDIST_FILE = ROOT / "data" / "subdistrict_shapes.parquet"
 LABELS_FILE = ROOT / "labels" / "labels.csv"
 LINKS_FILE = ROOT / "data" / "satp_links.csv"  # from link_satp.py
 ENTRIES_FILE = ROOT / "data" / "satp_entries.csv"  # from fetch_satp.py
@@ -42,6 +43,7 @@ LABEL_COLUMNS = [
     "incident_number", "split", "order", "precision", "shrid2", "place_name", "subdistrict_id",
     "subdistrict_name", "state_id", "district_id_2011", "place_type", "reason", "found_via",
     "preselected", "preselect_source", "confirmed", "pin_consulted", "located_lat", "located_lon", "located_match",
+    "point_lat", "point_lon", "point_source", "unit_type", "unit_id", "unit_name",
     "summary_cut_off", "skip_reason", "notes", "labeler", "labeled_at",
 ]
 
@@ -223,6 +225,26 @@ def locate(state_id, lat, lon):
     if len(nearest):
         return ids[nearest[0]], f"nearest, about {dist[0] * 111:.1f} km away"
     return None, "no SHRUG place within about 2 km"
+
+
+@st.cache_resource
+def state_subdistricts(state_id):
+    """SHRUG subdistrict boundaries for one state, with a spatial index."""
+    shapes = pd.read_parquet(SUBDIST_FILE, filters=[("state_id", "==", state_id)])
+    geoms = shapely.from_wkb(shapes["wkb"].values)
+    return shapes[["district_id", "subdistrict_id"]].to_dict("records"), shapely.STRtree(geoms)
+
+
+def unit_at(state_id, lat, lon):
+    """The unit a point falls in: the village or town (shrid2), else the subdistrict (district_id, subdistrict_id)."""
+    point = shapely.Point(lon, lat)
+    ids, _, tree = state_shapes(state_id)
+    inside = tree.query(point, predicate="intersects")
+    if len(inside):
+        return ids[inside[0]], None
+    subs, tree = state_subdistricts(state_id)
+    inside = tree.query(point, predicate="intersects")
+    return None, (subs[inside[0]] if len(inside) else None)
 
 
 def preselect(inc, places):
@@ -532,6 +554,42 @@ with right:
                           value=default("summary_cut_off", "False") == "True")
     notes = st.text_input("Notes", key=key("notes"), value=default("notes", ""))
 
+    # point for mapping and unit for analysis (protocol rule 6)
+    loc = st.session_state.get(key("located"))
+    point, point_source = None, ""
+    if loc and loc[0] is not None:
+        point, point_source = (loc[0], loc[1]), "your point"
+    elif precision in AT_PLACE and len(chosen):
+        point, point_source = (chosen["lat"].mean(), chosen["lon"].mean()), "SHRUG place"
+    sub_lookup = all_places.drop_duplicates(["district_id", "subdistrict_id"]).set_index(["district_id", "subdistrict_id"])["subdistrict_name"]
+    unit_type = unit_id = unit_name = ""
+    if precision in AT_PLACE and point_source == "SHRUG place":
+        unit_type, unit_id, unit_name = chosen["place_type"].iloc[0], "|".join(chosen["shrid2"]), chosen["name"].iloc[0]
+    elif precision in AT_PLACE and point:
+        in_place, in_sub = unit_at(inc["state_id"], *point)
+        if in_place:
+            here = all_places[all_places.shrid2 == in_place]
+            unit_type, unit_id = "village or town", in_place
+            if len(here):
+                unit_type, unit_name = here["place_type"].iloc[0], here["name"].iloc[0]
+            if len(chosen) and in_place not in set(chosen["shrid2"]):
+                st.warning(f"Your point falls in {unit_name or in_place}, not the selected place; the unit follows the point.")
+        elif in_sub:
+            unit_type, unit_id = "subdistrict", f"{inc['state_id']}-{in_sub['district_id']}-{in_sub['subdistrict_id']}"
+            unit_name = str(sub_lookup.get((in_sub["district_id"], in_sub["subdistrict_id"]), "")).title()
+    elif precision == "subdistrict" and subdistrict_id:
+        unit_type, unit_id = "subdistrict", f"{inc['state_id']}-{district_id}-{subdistrict_id}"
+        unit_name = str(sub_lookup.get((district_id, subdistrict_id), "")).title()
+    elif precision == "district":
+        unit_type, unit_id = "district", f"{inc['state_id']}-{district_id}"
+        unit_name = in_district["district_name"].iloc[0].title() if len(in_district) else ""
+    elif precision == "state or unknown":
+        unit_type, unit_id = "state", inc["state_id"]
+    if unit_type:
+        where = f"{point[0]:.4f}, {point[1]:.4f} ({point_source})" if point else "none"
+        st.caption(f"Saved as: point {where} · unit for analysis: {unit_name or unit_id} ({unit_type})"
+                   + (" · the point is outside every village" if unit_type == "subdistrict" and point else ""))
+
     if st.button("Save and go to next", type="primary", use_container_width=True):
         if not labeler:
             st.error("Enter your initials in the sidebar first.")
@@ -558,6 +616,8 @@ with right:
                 "located_lat": loc[0] if (loc := st.session_state.get(key("located"))) and loc[0] is not None else "",
                 "located_lon": loc[1] if loc and loc[0] is not None else "",
                 "located_match": loc[2] if loc and loc[0] is not None else "",
+                "point_lat": f"{point[0]:.6f}" if point else "", "point_lon": f"{point[1]:.6f}" if point else "",
+                "point_source": point_source, "unit_type": unit_type, "unit_id": unit_id, "unit_name": unit_name,
                 "summary_cut_off": str(cut_off), "notes": notes, "labeler": labeler, "labeled_at": datetime.now().isoformat(timespec="seconds"),
             })
             next_unlabeled()

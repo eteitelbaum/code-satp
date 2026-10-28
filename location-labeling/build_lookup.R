@@ -4,6 +4,7 @@
 #
 # Inputs
 #   village-matching/data-large/shrug-pc11-village-poly-gpkg/village.gpkg  SHRUG 2011 village/town polygons
+#   village-matching/data-large/shrug-pc11subdist-poly-gpkg/subdistrict.gpkg  SHRUG 2011 subdistrict polygons
 #   data/shrid_loc_names.csv                                               SHRUG place, subdistrict, district names
 #   data/satp_clean.csv                                                    coded incidents (state, district, pins)
 #   location-labeling/district_overrides.csv                               hand fixes to the crosswalk (optional)
@@ -12,6 +13,8 @@
 #   district_crosswalk.csv  coded state/district -> 2011 district, with how it was matched
 #   places.parquet          SHRUG villages and towns in the matched 2011 districts, with a point for the map
 #   pin_places.parquet      the SHRUG place each incident's hand-entered pin falls in
+#   place_shapes.parquet    simplified village/town boundaries, for the app's coordinate lookup
+#   subdistrict_shapes.parquet  simplified subdistrict boundaries in the study states, for points outside every village
 #
 # SHRUG data are CC BY-NC-SA 4.0 (Asher, Lunt, Matsuura and Novosad 2021).
 
@@ -25,6 +28,7 @@ library(arrow)
 sf_use_s2(FALSE)
 
 gpkg_file     <- "village-matching/data-large/shrug-pc11-village-poly-gpkg/village.gpkg"
+subdist_file  <- "village-matching/data-large/shrug-pc11subdist-poly-gpkg/subdistrict.gpkg"
 names_file    <- "data/shrid_loc_names.csv"
 incident_file <- "data/satp_clean.csv"
 override_file <- "location-labeling/district_overrides.csv"
@@ -212,3 +216,24 @@ write_parquet(
   ),
   file.path(out_dir, "place_shapes.parquet")
 )
+
+# subdistrict boundaries in the study states: subdistricts cover all land, so a point outside every
+# village (often reserved forest) still falls in one
+subdistricts <- st_read(
+  subdist_file,
+  query = sprintf("SELECT * FROM subdistrict WHERE pc11_state_id IN (%s)",
+                  paste0("'", study_states, "'", collapse = ",")),
+  quiet = TRUE
+) |>
+  mutate(geom = st_simplify(geom, preserveTopology = TRUE, dTolerance = 0.0005))
+
+write_parquet(
+  arrow_table(
+    state_id       = subdistricts$pc11_state_id,
+    district_id    = subdistricts$pc11_district_id,
+    subdistrict_id = subdistricts$pc11_subdistrict_id,
+    wkb            = Array$create(unclass(st_as_binary(st_geometry(subdistricts))), type = binary())
+  ),
+  file.path(out_dir, "subdistrict_shapes.parquet")
+)
+message("Subdistricts: ", nrow(subdistricts), " in ", length(study_states), " states")
