@@ -449,14 +449,34 @@ with left:
             p0 = pick.iloc[0]
             st.info(("Model's pick: " + f"{p0['relation']} {p0['name']}" if p0["rank"] > 0 else "Model: none of these fit")
                     + f". {p0['model_reason']}")
-    # places the text puts the event in or near that have no close match (SHRUG spelling below 0.92, nothing in OpenStreetMap)
-    close = mentions.matched.str.contains("OpenStreetMap") | (
-        mentions.matched.str.extract(r"SHRUG (\d\.\d+)")[0].astype(float).fillna(0) >= 0.92)
-    found = mentions[(mentions.incident_number == iid) & ~close
-                     & mentions.role.isin(["where it happened", "near where it happened"])]
-    if len(found):
-        st.markdown("No close match in SHRUG or OpenStreetMap: " + " · ".join(
-            f"{m.name} ([Google Maps]({google_maps(m.name)}))" for m in found.itertuples()))
+    # places the text puts the event in or near that the search did not find closely (SHRUG spelling below 0.92,
+    # nothing in OpenStreetMap); district and state names are never searched, and a matched subdistrict is found
+    weak = mentions[(mentions.incident_number == iid)
+                    & mentions.role.isin(["where it happened", "near where it happened"])
+                    & ~mentions.kind.isin(["district", "state"])
+                    & ~mentions.matched.str.contains("OpenStreetMap|subdistrict")].copy()
+    weak["shrug"] = weak.matched.str.extract(r"SHRUG (\d\.\d+)")[0].astype(float).fillna(0)
+    weak = weak[weak.shrug < 0.92]
+    osm_kinds = ["village", "town", "hamlet", "locality", "police station", "camp", "other", "forest", "hill"]
+    g = lambda m: f"([Google Maps]({google_maps(m.name)}))"
+
+    def nearest(m):
+        opt = sug[(sug["query"] == m.name) & (sug["source"] == "SHRUG") & (sug["rank"] > 0)]
+        if len(opt):
+            return f"{m.name}: option {opt.iloc[0]['rank']} is {opt.iloc[0]['name']}, spelling {m.shrug:.2f} {g(m)}"
+        return f"{m.name}: closest SHRUG spelling {m.shrug:.2f}, not among the options {g(m)}"
+
+    approx = weak[weak.shrug > 0]
+    missing = weak[(weak.shrug == 0) & weak.kind.isin(osm_kinds)]
+    unsearched = weak[(weak.shrug == 0) & ~weak.kind.isin(osm_kinds)]
+    if len(approx):
+        st.markdown("**Only a different spelling in SHRUG** (check it is the same place): "
+                    + " · ".join(nearest(m) for m in approx.itertuples()))
+    if len(missing):
+        st.markdown("**Not in SHRUG or OpenStreetMap:** " + " · ".join(f"{m.name} {g(m)}" for m in missing.itertuples()))
+    if len(unsearched):
+        st.markdown("**Not in SHRUG; OpenStreetMap not searched for this kind of place:** "
+                    + " · ".join(f"{m.name} ({m.kind}) {g(m)}" for m in unsearched.itertuples()))
     cand_box = st.expander("More candidates: coded names and names in the text") if len(sug) else st.container()
     if not len(sug):
         st.subheader("Candidates")
