@@ -39,9 +39,16 @@ Generated data (`data/`, including SATP's pages and text) and labels (`labels/`)
 For each incident, record **where the event happened**, as precisely as the report allows: **in** a village or town, **near** a village or town, or, failing that, the subdistrict or district. Choose the most specific place the report supports before falling back to the subdistrict. The SATP coding manual covers state and district only; these rules are new for this answer set.
 
 1. **Label where the event happened**, not where victims lived, where forces came from, or where bodies were taken.
-2. **Events at police stations, camps, colonies, markets, neighborhoods:** **in** the village or town they sit in. For a town listed in several subdistrict parts, choose the part if you can tell, otherwise the whole town. "Under X Police Station (limits)" names the station's jurisdiction, not the place: use it to choose the subdistrict only when the report names nothing more specific.
-3. **"Near X," or a forest, hill, or river tied to or named after X** (e.g., "Karlapat forest"): **near** X.
-4. **Forests, hills, or areas not tied to a named place:** the subdistrict, or the district if that is all the report supports.
+2. **Events at police stations, camps, colonies, markets, neighborhoods:** **in** the village or town they sit in. For a town listed in several subdistrict parts, choose the part if you can tell, otherwise the whole town. "Under X Police Station (limits)" names the station's jurisdiction, not the place: use it to choose the subdistrict only when the report names nothing more specific (for forests, see rule 4).
+3. **"Near X":** **near** X.
+4. **Forests, hills, sanctuaries:** take the first that applies.
+   1. A village or town the report names in or near the forest, if you can find it: **in** or **near** it.
+   2. The forest is mapped and the report names a jurisdiction (police station, mandal, block): a point inside the part of the forest within that jurisdiction's subdistrict.
+   3. The forest is named after a place you can find ("Karlapat forest"): **near** that place.
+   4. The forest is mapped: a point in the middle of it.
+   5. Otherwise: the subdistrict, or the district if that is all the report supports.
+
+   "Mapped" means outlined on OpenStreetMap or Google Maps. Tree cover counts; legal status does not. A point in a forest usually falls outside every village, so its unit is the subdistrict (rule 6).
 5. **Places SHRUG does not list:** find the spot on a map and paste its coordinates into **Locate by coordinates**, and choose the SHRUG place the report names, if any, as the place the event was in or near.
 6. **Point and unit:** each label saves a point for mapping (your pasted point, or else the chosen place's location) and a unit for analysis, taken from the point: the village or town it falls in, or the subdistrict when it falls outside every village (often reserved forest). The app shows both before you save.
 7. **Several plausible candidates within a few kilometers:** pick the one with the best evidence and record the alternative in the notes. Use the subdistrict only when you cannot place the event that closely.
