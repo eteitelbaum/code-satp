@@ -1,0 +1,59 @@
+incident_number,decision,entry_month,entry_id,also,note
+308201601,not found,,,,
+312251501,confirmed,2015-12,ll91,,SATP dates the report (Dec 29); text says abducted Dec 25
+301131601,not found,,,,
+303101601,confirmed,2016-04,ll52,,SATP files it under April 11; its text says March 11
+801081601,not found,,,,
+301121601,confirmed,2016-01,ll54,,ll64 (Jan 15) is a near-identical report
+1410241601,confirmed,2016-10,ll87,2016-10 ll89;2016-10 ll106,summary merges three entries
+1212291601,not found,,,,
+1401051602,confirmed,2016-01,ll33,,SATP text says January 7; coded January 5
+312071601,confirmed,2016-12,ll22,,ll23 is a duplicate entry
+301231602,not found,,,,
+201221601,not found,,,,
+808301601,not found,,,,
+801121601,not found,,,,
+305011601,not found,,,,
+308131601,not found,,,,
+801121602,not found,,,,
+309161601,confirmed,2016-09,ll81,,death on Sep 21; coded date is the encounter (Sep 16)
+1410261601,confirmed,2016-10,ll94,,ll95 is a duplicate entry
+808181602,not found,,,,ll47 is a different arrest in Latehar the same day
+305231601,not found,,,,
+212221601,confirmed,2016-12,ll71,,SATP Dec 20; coded date Dec 17; incident number Dec 22
+212211601,relinked,2016-09,ll83,,SATP files it under September 21; its text says December 21
+805091602,not found,,,,
+311251602,not found,,,,
+804011601,confirmed,2016-03,ll122,,SATP files it under March 1; text says arrest March 31 and IEDs found April 1
+110131501,confirmed,2015-10,ll51,,ll52 is a second report of the same event
+1407081501,confirmed,2015-07,ll46,,SATP dates the report (Jul 12); text says July 8
+1506071501,not found,,,,
+1202181501,relinked,2016-04,ll91,,"SATP files it under April 2016, but the coded April 18, 2015 is right: the arrest follows the April 12, 2015 Chhote Baithiya gunbattle (304121501)"
+304121501,confirmed,2015-05,ll67,,SATP files it under May 12; its text says April 12
+1808301501,confirmed,2015-08,ll96,,SATP text says August 28; coded August 30
+205161501,not found,,,,
+1408261504,not found,,,,
+312041501,not found,,,,
+101171502,confirmed,2015-01,ll116,,attack on January 17; arrests reported January 22
+312101502,confirmed,2015-12,ll24,,ll16 (Dec 8) reports the same ambush
+302131502,confirmed,2015-02,ll65,,gherao on Feb 16; coded date is the arrest (Feb 13)
+2109231501,not found,,,,
+307101501,confirmed,2015-07,ll73,,release on Jul 16; coded date is the abduction (Jul 10)
+1209031502,confirmed,2015-09,ll30,2015-09 ll6,summary merges two entries
+1001251501,relinked,2015-01,ll140,2015-01 ll156,summary merges two entries
+1902231501,relinked,2015-02,ll103,,"coded fields describe this Sonbhadra arms recovery; the summary is a different event (TRS leaders released in Khammam, November 2015; #13)"
+301221501,confirmed,2015-01,ll123,,killing on Jan 24; coded date is the abduction (Jan 22)
+204031501,relinked,2016-04,ll11,,"SATP files it under April 2016, but the coded April 3, 2015 is right: Shivdeep Lande was Rohtas SP in 2015 and STF SP by January 2016"
+812031501,not found,,,,
+807071501,confirmed,2015-07,ll32,,coded date is the arrest (Jul 7); seizure Jul 9
+301061501,not found,,,,
+310081502,relinked,2015-10,ll27,2015-10 ll24,summary merges two entries
+1411111501,confirmed,2015-11,ll36,,ll38 (Nov 12) is a different killing
+312041502,not found,,,,
+807031501,not found,,,,
+111031401,confirmed,2014-11,ll14,,second paragraph of the summary duplicates 1402171501 (Malkangiri camps); deleted in #10
+1209031501,relinked,2015-09,ll5,2015-09 ll30,summary merges two entries
+112061501,confirmed,2015-12,ll14,,SATP text says December 8; coded December 6
+1002161501,confirmed,2015-02,ll77,,SATP text says February 18; coded February 16
+802051501,not found,,,,
+304121503,relinked,2015-04,ll46,,short entry; ties with unrelated entries
