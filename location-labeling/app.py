@@ -28,6 +28,8 @@ SAMPLE_FILE = ROOT / "data" / "sample.csv"
 PLACES_FILE = ROOT / "data" / "places.parquet"
 SHAPES_FILE = ROOT / "data" / "place_shapes.parquet"
 SUBDIST_FILE = ROOT / "data" / "subdistrict_shapes.parquet"
+SUGGEST_FILE = ROOT / "data" / "suggestions.csv"  # from suggest.py
+MENTIONS_FILE = ROOT / "data" / "mentions.csv"
 LABELS_FILE = ROOT / "labels" / "labels.csv"
 LINKS_FILE = ROOT / "data" / "satp_links.csv"  # from link_satp.py
 ENTRIES_FILE = ROOT / "data" / "satp_entries.csv"  # from fetch_satp.py
@@ -37,13 +39,13 @@ AT_PLACE = PRECISIONS[:2]  # precisions that name a SHRUG place
 LEGACY = {"village or town": "in a village or town"}  # earlier label values
 PLACE_TYPES = ["village", "town", "police station", "camp", "forest", "hill", "river", "road", "other"]
 REASONS = ["", "hamlet", "local name", "area only", "camp", "not found", "other"]
-FOUND_VIA = ["shortlist", "search", "Google Maps", "SATP page", "pin"]
+FOUND_VIA = ["suggestion", "shortlist", "search", "Google Maps", "OpenStreetMap", "SATP page", "pin"]
 SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
 LABEL_COLUMNS = [
     "incident_number", "split", "order", "precision", "shrid2", "place_name", "subdistrict_id",
     "subdistrict_name", "state_id", "district_id_2011", "place_type", "reason", "found_via",
     "preselected", "preselect_source", "confirmed", "pin_consulted", "located_lat", "located_lon", "located_match",
-    "point_lat", "point_lon", "point_source", "unit_type", "unit_id", "unit_name",
+    "point_lat", "point_lon", "point_source", "unit_type", "unit_id", "unit_name", "suggestion_rank", "model_pick_rank",
     "summary_cut_off", "skip_reason", "notes", "labeler", "labeled_at",
 ]
 
@@ -100,6 +102,44 @@ def load_satp():
         keys = [(r.entry_month, r.entry_id)] + [tuple(a.split()) for a in r.also.split(";") if a]
         satp[r.incident_number] = ([text[k] for k in keys], r.url)
     return satp
+
+
+@st.cache_data
+def load_suggestions():
+    """Precomputed suggestions and the places extracted from each text (empty until suggest.py has run)."""
+    if not (SUGGEST_FILE.exists() and MENTIONS_FILE.exists()):
+        return pd.DataFrame(columns=["incident_number", "rank", "model_pick"]), pd.DataFrame(columns=["incident_number", "matched", "role", "name"])
+    sug = pd.read_csv(SUGGEST_FILE, dtype={"incident_number": str, "shrid2": str, "subdistrict_id": str})
+    sug[["shrid2", "subdistrict_id", "query", "evidence", "model_reason", "name", "relation", "source"]] = \
+        sug[["shrid2", "subdistrict_id", "query", "evidence", "model_reason", "name", "relation", "source"]].fillna("")
+    sug["model_pick"] = sug["model_pick"].astype(str) == "True"
+    mentions = pd.read_csv(MENTIONS_FILE, dtype=str).fillna("")
+    return sug, mentions
+
+
+def google_maps(name):
+    """A Google Maps search for a place name in the incident's district, filled in."""
+    return "https://www.google.com/maps/search/" + quote_plus(f"{name}, {inc['district']}, {inc['state']}, India")
+
+
+def apply_suggestion(o):
+    """Fill the label from a suggestion: the place (or OpenStreetMap point), in or near, or the subdistrict."""
+    st.session_state[key("suggestion")] = int(o.rank)
+    st.session_state.pop(key("precision"), None)  # the radio takes its value from prec_pick on the next run
+    if o.relation == "subdistrict":
+        st.session_state[key("prec_pick")] = "subdistrict"
+        st.session_state[key("sub_pick")] = o.subdistrict_id
+        st.session_state.pop(key("subdistrict"), None)
+    else:
+        st.session_state[key("prec_pick")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
+        st.session_state[key("choice")] = o.shrid2
+        if o.source == "OpenStreetMap":
+            coords = f"{o.lat}, {o.lon}"
+            st.session_state[key("coords")] = st.session_state[key("coords_done")] = coords
+            st.session_state[key("located")] = (o.lat, o.lon, "an OpenStreetMap point")
+            st.session_state[key("located_shrid")] = o.shrid2
+            st.session_state[key("located_source")] = "OpenStreetMap"
+    st.rerun()
 
 
 def load_labels():
@@ -290,6 +330,7 @@ def next_unlabeled():
 sample = load_sample()
 labels = load_labels()
 satp = load_satp()
+suggestions, mentions = load_suggestions()
 done = set(labels.incident_number)
 
 with st.sidebar:
@@ -377,34 +418,62 @@ with left:
     gq = quote_plus(f"{names[0] if names else ''} {inc['district']} {inc['state']} India")
     st.markdown(f"[SATP page]({satp_page or inc['satp_url']}) · [Google Maps](https://www.google.com/maps/search/{gq})")
 
-    st.subheader("Candidates")
-    st.caption("Ranked by how closely the spelling matches a coded name (1.00 = same spelling); this is not a probability.")
-    groups = split_towns(places)
-    shown = pd.concat([in_text.assign(query="", score=1.0), cands]).drop_duplicates("shrid2")
-    shown = collapse_towns(shown, groups)
-    for _, p in shown.iterrows():
-        is_on = st.session_state[key("choice")] == p["shrid2"]
-        if p["query"]:
-            why = f"spelling match to “{p['query']}” {p['score']:.2f}"
-        else:
-            in_summary = re.search(rf"\b{re.escape(p['name'])}\b", inc["incident_summary"], flags=re.I)
-            why = ("named in the summary" if in_summary else "named only in the full SATP entry") + (
-                "" if coder_recorded(p["name"], names) else ", not recorded by the coders")
-        label = f"{'● ' if is_on else ''}{p['label']} · {why}"
-        if st.button(label, key=key(f"c_{p['shrid2']}"), type="primary" if is_on else "secondary"):
-            st.session_state[key("choice")] = p["shrid2"]
-            st.session_state[key("via_search")] = False
-            st.rerun()
-        if p["shrid2"].startswith("town:"):  # the town's subdistrict parts, indented under it
-            parts = members(places, p["shrid2"]).sort_values("subdistrict_name", na_position="last")
-            _, inner = st.columns([1, 12])
-            for _, part in parts.iterrows():
-                part_on = st.session_state[key("choice")] == part["shrid2"]
-                sub = part["subdistrict_name"].title() if isinstance(part["subdistrict_name"], str) else "unnamed subdistrict"
-                if inner.button(f"{'● ' if part_on else ''}↳ part in {sub}", key=key(f"c_{part['shrid2']}"),
-                                type="primary" if part_on else "secondary"):
-                    st.session_state[key("choice")] = part["shrid2"]
-                    st.rerun()
+    sug = suggestions[suggestions.incident_number == iid]
+    if len(sug):
+        st.subheader("Suggestions")
+        for o in sug[sug["rank"] > 0].itertuples():
+            on = bool(o.shrid2) and st.session_state[key("choice")] == o.shrid2
+            mark = " ★ model's pick" if o.model_pick else ""
+            c_opt, c_g = st.columns([7, 1], vertical_alignment="center")
+            if c_opt.button(f"{'● ' if on else ''}{o.rank}. {o.relation} {o.name} · {o.source}{mark}", key=key(f"s_{o.rank}"),
+                            type="primary" if on else "secondary", use_container_width=True):
+                apply_suggestion(o)
+            c_g.link_button("Google", google_maps(o.query or o.name), use_container_width=True)
+            st.caption(o.evidence)
+        pick = sug[sug.model_pick]
+        if len(pick):
+            p0 = pick.iloc[0]
+            st.info(("Model's pick: " + f"{p0['relation']} {p0['name']}" if p0["rank"] > 0 else "Model: none of these fit")
+                    + f". {p0['model_reason']}")
+    # places the text puts the event in or near that have no close match (SHRUG spelling below 0.92, nothing in OpenStreetMap)
+    close = mentions.matched.str.contains("OpenStreetMap") | (
+        mentions.matched.str.extract(r"SHRUG (\d\.\d+)")[0].astype(float).fillna(0) >= 0.92)
+    found = mentions[(mentions.incident_number == iid) & ~close
+                     & mentions.role.isin(["where it happened", "near where it happened"])]
+    if len(found):
+        st.markdown("No close match in SHRUG or OpenStreetMap: " + " · ".join(
+            f"{m.name} ([Google Maps]({google_maps(m.name)}))" for m in found.itertuples()))
+    cand_box = st.expander("More candidates: coded names and names in the text") if len(sug) else st.container()
+    if not len(sug):
+        st.subheader("Candidates")
+    with cand_box:
+        st.caption("Ranked by how closely the spelling matches a coded name (1.00 = same spelling); this is not a probability.")
+        groups = split_towns(places)
+        shown = pd.concat([in_text.assign(query="", score=1.0), cands]).drop_duplicates("shrid2")
+        shown = collapse_towns(shown, groups)
+        for _, p in shown.iterrows():
+            is_on = st.session_state[key("choice")] == p["shrid2"]
+            if p["query"]:
+                why = f"spelling match to “{p['query']}” {p['score']:.2f}"
+            else:
+                in_summary = re.search(rf"\b{re.escape(p['name'])}\b", inc["incident_summary"], flags=re.I)
+                why = ("named in the summary" if in_summary else "named only in the full SATP entry") + (
+                    "" if coder_recorded(p["name"], names) else ", not recorded by the coders")
+            label = f"{'● ' if is_on else ''}{p['label']} · {why}"
+            if st.button(label, key=key(f"c_{p['shrid2']}"), type="primary" if is_on else "secondary"):
+                st.session_state[key("choice")] = p["shrid2"]
+                st.session_state[key("via_search")] = False
+                st.rerun()
+            if p["shrid2"].startswith("town:"):  # the town's subdistrict parts, indented under it
+                parts = members(places, p["shrid2"]).sort_values("subdistrict_name", na_position="last")
+                _, inner = st.columns([1, 12])
+                for _, part in parts.iterrows():
+                    part_on = st.session_state[key("choice")] == part["shrid2"]
+                    sub = part["subdistrict_name"].title() if isinstance(part["subdistrict_name"], str) else "unnamed subdistrict"
+                    if inner.button(f"{'● ' if part_on else ''}↳ part in {sub}", key=key(f"c_{part['shrid2']}"),
+                                    type="primary" if part_on else "secondary"):
+                        st.session_state[key("choice")] = part["shrid2"]
+                        st.rerun()
 
     lookup = st.text_input("Look up a name", key=key("lookup"), placeholder="e.g. a village named on the SATP page",
                            help="Lists the closest spellings among SHRUG villages and towns in the district. A close spelling "
@@ -439,7 +508,7 @@ with left:
         """Forget the pasted point, and the place it selected."""
         if st.session_state.get(key("choice")) == st.session_state.get(key("located_shrid")):
             st.session_state[key("choice")] = ""
-        for k in ("coords_done", "located", "located_shrid"):
+        for k in ("coords_done", "located", "located_shrid", "located_source"):
             st.session_state.pop(key(k), None)
         if reset_box:  # only from the button's callback, before the box is drawn
             st.session_state[key("coords")] = ""
@@ -456,6 +525,7 @@ with left:
         st.rerun()
     if coords and coords != st.session_state.get(key("coords_done")):
         st.session_state[key("coords_done")] = coords
+        st.session_state.pop(key("located_source"), None)  # a pasted point is yours
         parsed = parse_coords(coords)
         if parsed is None:
             st.session_state[key("located")] = (None, None, "could not read coordinates in India")
@@ -515,7 +585,8 @@ with right:
     if existing is not None and existing["precision"] == "skipped":
         default = lambda col, fallback: existing[col] if col in ("notes",) and existing[col] else fallback
     precision = st.radio("Where did it happen?", PRECISIONS, key=key("precision"),
-                         index=PRECISIONS.index(LEGACY.get(default("precision", ""), default("precision", PRECISIONS[0]))),
+                         index=PRECISIONS.index(st.session_state.get(key("prec_pick")) or
+                                                LEGACY.get(default("precision", ""), default("precision", PRECISIONS[0]))),
                          horizontal=True)
     chosen = members(pool, choice) if choice else pool.iloc[0:0]
     subdistrict_id = chosen["subdistrict_id"].iloc[0] if chosen["subdistrict_id"].nunique() == 1 else ""
@@ -537,7 +608,7 @@ with right:
         saved = existing["subdistrict_id"] if existing is not None and existing["precision"] == "subdistrict" else ""
         # default: the selected village's subdistrict, else one the coders named (e.g., "Thullur" mandal)
         named = [i for i, n in sub_names.items() if isinstance(n, str) and norm(n) in {norm(x) for x in names}]
-        start = saved or subdistrict_id or (named[0] if named else "")
+        start = st.session_state.get(key("sub_pick")) or saved or subdistrict_id or (named[0] if named else "")
         subdistrict_id = st.selectbox("Subdistrict (defaults to the selected village's)", options, key=key("subdistrict"),
                                       index=options.index(start) if start in options else 0,
                                       format_func=lambda s: sub_names.get(s, "choose…"))
@@ -558,7 +629,7 @@ with right:
     loc = st.session_state.get(key("located"))
     point, point_source = None, ""
     if loc and loc[0] is not None:
-        point, point_source = (loc[0], loc[1]), "your point"
+        point, point_source = (loc[0], loc[1]), st.session_state.get(key("located_source"), "your point")
     elif precision in AT_PLACE and len(chosen):
         point, point_source = (chosen["lat"].mean(), chosen["lon"].mean()), "SHRUG place"
     sub_lookup = all_places.drop_duplicates(["district_id", "subdistrict_id"]).set_index(["district_id", "subdistrict_id"])["subdistrict_name"]
@@ -590,6 +661,22 @@ with right:
         st.caption(f"Saved as: point {where} · unit for analysis: {unit_name or unit_id} ({unit_type})"
                    + (" · the point is outside every village" if unit_type == "subdistrict" and point else ""))
 
+    # which suggestion the label matches (rank 1-5, or "not in list"), and the model's pick (0 = none)
+    suggestion_rank, model_pick_rank = "", ""
+    if len(sug):
+        model_pick_rank = str(int(sug[sug.model_pick]["rank"].iloc[0])) if sug.model_pick.any() else ""
+        suggestion_rank = "not in list"
+        for o in sug[sug["rank"] > 0].itertuples():
+            if o.relation == "subdistrict":
+                hit = precision == "subdistrict" and o.subdistrict_id == subdistrict_id
+            elif o.source == "OpenStreetMap":
+                hit = precision in AT_PLACE and point_source == "OpenStreetMap" and point and abs(point[0] - o.lat) < 1e-5
+            else:
+                hit = precision in AT_PLACE and o.shrid2 in set(chosen["shrid2"])
+            if hit:
+                suggestion_rank = str(int(o.rank))
+                break
+
     if st.button("Save and go to next", type="primary", use_container_width=True):
         if not labeler:
             st.error("Enter your initials in the sidebar first.")
@@ -618,6 +705,7 @@ with right:
                 "located_match": loc[2] if loc and loc[0] is not None else "",
                 "point_lat": f"{point[0]:.6f}" if point else "", "point_lon": f"{point[1]:.6f}" if point else "",
                 "point_source": point_source, "unit_type": unit_type, "unit_id": unit_id, "unit_name": unit_name,
+                "suggestion_rank": suggestion_rank, "model_pick_rank": model_pick_rank,
                 "summary_cut_off": str(cut_off), "notes": notes, "labeler": labeler, "labeled_at": datetime.now().isoformat(timespec="seconds"),
             })
             next_unlabeled()

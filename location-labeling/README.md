@@ -12,6 +12,7 @@ python location-labeling/draw_sample.py               # incidents to label
 python location-labeling/fetch_satp.py                # SATP monthly pages (cached locally)
 python location-labeling/link_satp.py                 # link each incident to its SATP entry
 python location-labeling/satp_dates.py                # dates settled from SATP (#10)
+python location-labeling/suggest.py validation        # model suggestions for the app (#9; needs OPENAI_API_KEY in .env)
 streamlit run location-labeling/app.py                # labeling app
 ```
 
@@ -26,6 +27,7 @@ streamlit run location-labeling/app.py                # labeling app
 | `link_satp.py` | Links each sample incident, and each date discrepancy in `data/date_corrections.csv`, to its SATP entry by word overlap with the coded summary, within a few days of its date |
 | `satp_link_review.csv` | Hand decisions on links the matching could not settle: the entry, any further entries the summary draws on, or "not found"; and the date, where SATP's is wrong |
 | `satp_dates.py` | Takes SATP's date for the date discrepancies and for sample incidents a day off from SATP; writes `data/satp_dates.csv` |
+| `suggest.py` | Suggestions for the app: GPT-4o-mini lists the places in the text and their roles; each is matched to SHRUG villages, towns, and subdistricts (OpenStreetMap for places SHRUG lacks); the top five options are ranked by spelling and context, and the model picks one with a reason. Model calls and lookups are cached in `data/suggest/` |
 | `app.py` | The labeling app; labels save to `labels/labels.csv` |
 
 Generated data (`data/`, including SATP's pages and text) and labels (`labels/`) are not committed.
@@ -51,7 +53,7 @@ What to record:
 - **Where it happened:** in or near a village or town, subdistrict, district, or state/unknown
 - **Place type:** what the place in the report is (village, town, police station, camp, forest, hill, river, road, other)
 - **Reason**, if coarser than a village or town: hamlet, local name, area only, camp, not found, other
-- **How you found it:** shortlist, search, Google Maps, SATP page, pin
+- **How you found it:** suggestion, shortlist, search, Google Maps, OpenStreetMap, SATP page, pin
 - **Summary cut off:** check this if the coded summary is truncated and you labeled from the SATP source page
 
 ## Sources

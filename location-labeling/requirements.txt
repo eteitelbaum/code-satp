@@ -5,3 +5,6 @@ rapidfuzz
 shapely>=2.0
 beautifulsoup4
 requests
+openai
+pydantic
+python-dotenv
