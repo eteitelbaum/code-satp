@@ -315,7 +315,8 @@ def candidates(inc, mentions, places, osm):
             adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"])
             where = f"falls in {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"] else "outside every village"
             alias = f" (listed as “{h['name']}”)" if h["name"] != h["primary"] else ""
-            options.append({"relation": relation, "source": "OpenStreetMap", "name": h["primary"], "shrid2": h["shrid2"],
+            options.append({"relation": relation, "source": "OpenStreetMap", "name": h["primary"], "osm_id": h["osm_id"],
+                            "shrid2": h["shrid2"],
                             "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
                             "score": sim + weight - 0.05 + adjust,  # a little below an equal SHRUG match
                             "query": m["name"],

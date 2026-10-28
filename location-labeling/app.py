@@ -113,11 +113,22 @@ def load_suggestions():
     if not (SUGGEST_FILE.exists() and MENTIONS_FILE.exists()):
         return pd.DataFrame(columns=["incident_number", "rank", "model_pick"]), pd.DataFrame(columns=["incident_number", "matched", "role", "name"])
     sug = pd.read_csv(SUGGEST_FILE, dtype={"incident_number": str, "shrid2": str, "subdistrict_id": str})
-    sug[["shrid2", "subdistrict_id", "query", "evidence", "model_reason", "name", "relation", "source"]] = \
-        sug[["shrid2", "subdistrict_id", "query", "evidence", "model_reason", "name", "relation", "source"]].fillna("")
+    if "osm_id" not in sug:  # runs before OpenStreetMap IDs were kept
+        sug["osm_id"] = ""
+    text_cols = ["shrid2", "subdistrict_id", "query", "evidence", "model_reason", "name", "relation", "source", "osm_id"]
+    sug[text_cols] = sug[text_cols].fillna("")
     sug["model_pick"] = sug["model_pick"].astype(str) == "True"
     mentions = pd.read_csv(MENTIONS_FILE, dtype=str).fillna("")
     return sug, mentions
+
+
+def osm_map(name, osm_id="", lat=None, lon=None):
+    """OpenStreetMap: the mapped object itself (outlined), else the spot, else a search for the name in the district."""
+    if osm_id:
+        return f"https://www.openstreetmap.org/{osm_id}"
+    if pd.notna(lat) and pd.notna(lon):
+        return f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=14/{lat}/{lon}"
+    return "https://www.openstreetmap.org/search?query=" + quote_plus(f"{name}, {inc['district']}, {inc['state']}")
 
 
 def google_maps(name):
@@ -438,11 +449,12 @@ with left:
         for o in sug[sug["rank"] > 0].itertuples():
             on = bool(o.shrid2) and st.session_state[key("choice")] == o.shrid2
             mark = " ★ model's pick" if o.model_pick else ""
-            c_opt, c_g = st.columns([7, 1], vertical_alignment="center")
+            c_opt, c_g, c_o = st.columns([6, 1, 1], vertical_alignment="center")
             if c_opt.button(f"{'● ' if on else ''}{o.rank}. {o.relation} {o.name} · {o.source}{mark}", key=key(f"s_{o.rank}"),
                             type="primary" if on else "secondary", use_container_width=True):
                 apply_suggestion(o)
             c_g.link_button("Google", google_maps(o.query or o.name), use_container_width=True)
+            c_o.link_button("OSM", osm_map(o.name, o.osm_id, o.lat, o.lon), use_container_width=True)
             st.caption(o.evidence)
         pick = sug[sug.model_pick]
         if len(pick):
@@ -458,7 +470,8 @@ with left:
     weak["shrug"] = weak.matched.str.extract(r"SHRUG (\d\.\d+)")[0].astype(float).fillna(0)
     weak = weak[weak.shrug < 0.92]
     osm_kinds = ["village", "town", "hamlet", "locality", "police station", "camp", "other", "forest", "hill"]
-    g = lambda m: f"[Look up {m.name} on Google Maps]({google_maps(m.name)})"
+    g = lambda m: (f"Look up {m.name} on [Google Maps]({google_maps(m.name)}) · "
+                   f"[OpenStreetMap]({osm_map(m.name)})")
 
     for m in weak.itertuples():
         if m.kind in osm_kinds:
