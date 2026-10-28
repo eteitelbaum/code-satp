@@ -28,27 +28,27 @@ streamlit run location-labeling/app.py                # labeling app
 | `link_satp.py` | Links each sample incident, and each date discrepancy in `data/date_corrections.csv`, to its SATP entry by word overlap with the coded summary, within a few days of its date |
 | `satp_link_review.csv` | Hand decisions on links the matching could not settle: the entry, any further entries the summary draws on, or "not found"; and the date, where SATP's is wrong |
 | `satp_dates.py` | Takes SATP's date for the date discrepancies and for sample incidents a day off from SATP; writes `data/satp_dates.csv` |
-| `build_osm.py` | OpenStreetMap's named settlements, forests, and hills in the study states, under every Latin-script name, each tied to the SHRUG village and subdistrict it falls in; writes `data/osm_places.parquet` |
-| `suggest.py` | Suggestions for the app: GPT-4o-mini lists the places in the text and their roles; each is matched by spelling to SHRUG villages, towns, and subdistricts (and to OpenStreetMap's places when SHRUG has nothing close); the top five options are ranked by spelling and context, and the model picks one with a reason. Model calls are cached in `data/suggest/`; each run's outputs are kept in `data/suggest/runs/`, and each label records the run it saw |
+| `build_osm.py` | OpenStreetMap's named settlements, forests, protected areas, and hills in the study states, under every Latin-script name (plus short forms such as "Karlapat" for "Karlapat WLS"), each tied to the SHRUG village and subdistrict it falls in; writes `data/osm_places.parquet`, and the outlines of forests and protected areas to `data/osm_areas.parquet` |
+| `suggest.py` | Suggestions for the app: GPT-4o-mini lists the places in the text and their roles; each is matched by spelling to SHRUG villages, towns, and subdistricts (and to OpenStreetMap's places when SHRUG has nothing close); forests and hills that OpenStreetMap outlines also get points inside them (protocol rule 4); the top five options are ranked by spelling and context, and the model picks one with a reason. Model calls are cached in `data/suggest/`; each run's outputs are kept in `data/suggest/runs/`, and each label records the run it saw |
 | `app.py` | The labeling app; labels save to `labels/labels.csv` |
 
 Generated data (`data/`, including SATP's pages and text) and labels (`labels/`) are not committed.
 
 ## Labeling protocol
 
-For each incident, record **where the event happened**, as precisely as the report allows: **in** a village or town, **near** a village or town, or, failing that, the subdistrict or district. Choose the most specific place the report supports before falling back to the subdistrict. The SATP coding manual covers state and district only; these rules are new for this answer set.
+For each incident, record **where the event happened**, as precisely as the report allows: **in** a village or town, **near** a village or town, a point **in a forest or area** (rule 4), or, failing that, the subdistrict or district. Choose the most specific place the report supports before falling back to the subdistrict. The SATP coding manual covers state and district only; these rules are new for this answer set.
 
 1. **Label where the event happened**, not where victims lived, where forces came from, or where bodies were taken.
 2. **Events at police stations, camps, colonies, markets, neighborhoods:** **in** the village or town they sit in. For a town listed in several subdistrict parts, choose the part if you can tell, otherwise the whole town. "Under X Police Station (limits)" names the station's jurisdiction, not the place: use it to choose the subdistrict only when the report names nothing more specific (for forests, see rule 4).
 3. **"Near X":** **near** X.
 4. **Forests, hills, sanctuaries:** take the first that applies.
    1. A village or town the report names in or near the forest, if you can find it: **in** or **near** it.
-   2. The forest is mapped and the report names a jurisdiction (police station, mandal, block): a point inside the part of the forest within that jurisdiction's subdistrict.
+   2. The forest is mapped and the report names a jurisdiction (police station, mandal, block): a point inside the part of the forest within that jurisdiction's subdistrict (**in a forest or area**).
    3. The forest is named after a place you can find ("Karlapat forest"): **near** that place.
-   4. The forest is mapped: a point in the middle of it.
+   4. The forest is mapped: a point in the middle of it (**in a forest or area**).
    5. Otherwise: the subdistrict, or the district if that is all the report supports.
 
-   "Mapped" means outlined on OpenStreetMap or Google Maps. Tree cover counts; legal status does not. A point in a forest usually falls outside every village, so its unit is the subdistrict (rule 6).
+   "Mapped" means outlined on OpenStreetMap or Google Maps. Tree cover counts; legal status does not. A point in a forest usually falls outside every village, so its unit is the subdistrict (rule 6). When OpenStreetMap names the forest, the suggestions include these points and the map shows its outline; otherwise paste a point under **Locate by coordinates**.
 5. **Places SHRUG does not list:** find the spot on a map and paste its coordinates into **Locate by coordinates**, and choose the SHRUG place the report names, if any, as the place the event was in or near.
 6. **Point and unit:** each label saves a point for mapping (your pasted point, or else the chosen place's location) and a unit for analysis, taken from the point: the village or town it falls in, or the subdistrict when it falls outside every village (often reserved forest). The app shows both before you save.
 7. **Several plausible candidates within a few kilometers:** pick the one with the best evidence and record the alternative in the notes. Use the subdistrict only when you cannot place the event that closely.
@@ -59,7 +59,7 @@ For each incident, record **where the event happened**, as precisely as the repo
 
 What to record:
 
-- **Where it happened:** in or near a village or town, subdistrict, district, or state/unknown
+- **Where it happened:** in or near a village or town, in a forest or area (a point), subdistrict, district, or state/unknown
 - **Place type:** what the place in the report is (village, town, police station, camp, forest, hill, river, road, other)
 - **Reason**, if coarser than a village or town: hamlet, local name, area only, camp, not found, other
 - **How you found it:** suggestion, shortlist, search, Google Maps, OpenStreetMap, SATP page, pin

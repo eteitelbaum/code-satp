@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Literal
 
 import pandas as pd
+import shapely
 from dotenv import load_dotenv
 import openai
 from openai import OpenAI
@@ -62,6 +63,8 @@ TOP = 5
 MATCH = 0.80  # spelling similarity for a SHRUG candidate
 SURE = 0.92  # a SHRUG match this close needs no OpenStreetMap match
 OSM_KINDS = {"village", "town", "hamlet", "locality", "police station", "camp", "other", "forest", "hill"}  # mention kinds matched to OpenStreetMap
+FOREST_KINDS = {"forest", "hill", "other"}  # mention kinds matched to mapped forests and hills (protocol rule 4); "other" catches parks
+NATURAL = {"forest", "protected area", "hill", "peak", "ridge", "valley"}  # OpenStreetMap kinds they match
 WORKERS = 8  # incidents run at once
 LOCK = threading.Lock()  # guards the cache files and token counts across workers
 PRICE = {"prompt": 0.15 / 1e6, "completion": 0.60 / 1e6}  # GPT-4o-mini, US$ per token (estimate)
@@ -196,7 +199,30 @@ def extract(client, cache, inc, texts):
 
 # ---------------------------------------------------------------- 2. candidates
 
-def candidates(inc, mentions, places, osm):
+class Areas:
+    """Outlines of OpenStreetMap forests and protected areas, and SHRUG subdistricts, for protocol rule 4."""
+
+    def __init__(self):
+        a = pd.read_parquet(DATA / "osm_areas.parquet")
+        self.outline = dict(zip(a["osm_id"], zip(shapely.from_wkb(a["wkb"].values), a["area_km2"])))
+        self.subs = pd.read_parquet(DATA / "subdistrict_shapes.parquet")
+        self.subs["geom"] = shapely.from_wkb(self.subs["wkb"].values)
+        self._trees = {}
+
+    def tree(self, state_id):
+        if state_id not in self._trees:
+            df = self.subs[self.subs.state_id == state_id].reset_index(drop=True)
+            self._trees[state_id] = (df, shapely.STRtree(df["geom"].values))
+        return self._trees[state_id]
+
+    def split(self, state_id, geom):
+        """Share of an outline in each subdistrict, largest first: [(subdistrict_id, share, part)]."""
+        df, tree = self.tree(state_id)
+        parts = [(df.loc[i, "subdistrict_id"], shapely.intersection(geom, df.loc[i, "geom"])) for i in tree.query(geom, predicate="intersects")]
+        return sorted(((sid, part.area / geom.area, part) for sid, part in parts), key=lambda x: -x[1])
+
+
+def candidates(inc, mentions, places, osm, areas):
     """Options for one incident, best first, and the mentions with what each matched."""
     district = places[(places.state_id == inc["state_id"]) & (places.district_id == inc["district_id_2011"])]
     if district.empty:
@@ -209,12 +235,18 @@ def candidates(inc, mentions, places, osm):
     district_name = state.drop_duplicates("district_id").set_index("district_id")["district_name"]
     osm_state = osm[osm.state_id == inc["state_id"]]
     osm_state_keys = osm_state["name"].map(norm)
-    osm_district = osm_state[osm_state.district_id == inc["district_id_2011"]]
-    osm_district_keys = osm_state_keys[osm_district.index]
+    settlements = osm_state[~osm_state.kind.isin(NATURAL)]  # forests and hills are matched by forest_options
+    settlement_keys = osm_state_keys[settlements.index]
+    settlement_district_keys = settlement_keys[settlements.district_id == inc["district_id_2011"]]
     village_names = state.set_index("shrid2")["name"]
+    sub_names = state.drop_duplicates("subdistrict_id").set_index("subdistrict_id")["subdistrict_name"].str.title()
+    natural = osm_state[osm_state.kind.isin(NATURAL)]
+    natural_keys = osm_state_keys[natural.index]
+    natural_district_keys = natural_keys[natural.district_id == inc["district_id_2011"]]
 
-    # context: subdistricts named in the text, and named police stations' locations
-    named_subs, stations = set(), []
+    # context: subdistricts named in the text, named police stations' locations, and the subdistricts
+    # of the jurisdictions the text names ("under X Police Station", "X mandal")
+    named_subs, stations, jurisdictions = set(), [], {}
     for m in mentions:
         if m["role"] == "another incident":
             continue
@@ -222,6 +254,12 @@ def candidates(inc, mentions, places, osm):
             for _, s in subs.iterrows():
                 if spelling(norm(m["name"]), norm(s["subdistrict_name"])) >= 0.85:
                     named_subs.add(s["subdistrict_id"])
+                    jurisdictions.setdefault(s["subdistrict_id"], f"named in the text (“{m['quote']}”)")
+        elif m["role"] == "jurisdiction" and m["kind"] not in ("district", "state"):
+            for q in query_names(m["name"]):
+                for _, sim, i in process.extract(norm(q), keys, scorer=spelling, limit=3):
+                    if sim >= 0.88:
+                        jurisdictions.setdefault(district.loc[i, "subdistrict_id"], f"where {m['name']} lies, a jurisdiction in the text (“{m['quote']}”)")
         if m["kind"] == "police station":
             exact = district[keys == norm(m["name"])]
             if len(exact):
@@ -249,6 +287,44 @@ def candidates(inc, mentions, places, osm):
             hits.update({i: sim for i, sim in fuzzy(names, state_keys, 5).items()
                          if sim >= SURE and i not in district_keys.index})
         return hits
+
+    def forest_options(m, names, weight):
+        """Points inside a mapped forest, sanctuary, or hill (protocol rule 4): in the part within a
+        jurisdiction the text names (4.2), and in the middle of it (4.4)."""
+        hits = nearby(names, natural_district_keys, natural_keys)
+        best = max(hits.values(), default=0.0)
+        out, seen = [], set()
+        for i, sim in sorted(hits.items(), key=lambda x: -x[1]):
+            h = osm.loc[i]
+            if sim < best - NEAR_SPELLING or h["osm_id"] in seen:
+                continue
+            seen.add(h["osm_id"])
+            base = {"relation": "area", "source": "OpenStreetMap", "osm_id": h["osm_id"], "shrid2": "", "query": m["name"]}
+            role = f"{m['role']} (“{m['quote']}”)"
+            # a point in the middle ranks below "near" the place it is named after (rules 4.3, 4.4)
+            elsewhere = h["district_id"] != inc["district_id_2011"]
+            middle = sim + weight - 0.15 + (OTHER_DISTRICT if elsewhere else 0)
+            notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"])[1][:1] if elsewhere else []
+            if h["osm_id"] not in areas.outline:  # a peak or hill mapped as a point
+                out.append({**base, "name": h["primary"], "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
+                            "score": middle,
+                            "evidence": " · ".join([f"OpenStreetMap {h['kind']} (a point), spelling {sim:.2f} to “{m['name']}”", role] + notes)})
+                continue
+            geom, km2 = areas.outline[h["osm_id"]]
+            split = areas.split(inc["state_id"], geom)
+            shares = ", ".join(f"{share:.0%} {sub_names.get(sid, 'another subdistrict')}" for sid, share, _ in split[:3] if share >= 0.01)
+            desc = f"OpenStreetMap {h['kind']}, {km2:.0f} km² ({shares}), spelling {sim:.2f} to “{m['name']}”"
+            for sid, share, part in split:
+                if sid in jurisdictions and share >= 0.01:
+                    p = shapely.point_on_surface(part)
+                    sub = sub_names.get(sid, "the named")
+                    out.append({**base, "name": f"{h['primary']}, part in {sub} subdistrict", "subdistrict_id": sid,
+                                "lat": p.y, "lon": p.x, "score": sim + weight + 0.15,  # above "near" the namesake (rule 4.3)
+                                "evidence": " · ".join([desc, f"point in the part within {sub} subdistrict, {jurisdictions[sid]} (rule 4.2)", role])})
+            out.append({**base, "name": h["primary"], "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
+                        "score": middle,
+                        "evidence": " · ".join([desc, "point in the middle of it (rule 4.4)", role] + notes)})
+        return out, best
 
     options = []
     for m in mentions:
@@ -301,10 +377,17 @@ def candidates(inc, mentions, places, osm):
         if best:
             m["matched"] = f"SHRUG {best:.2f}"
 
+        # forests, hills, sanctuaries: points inside the mapped area, whatever SHRUG found
+        if m["kind"] in FOREST_KINDS and not osm_state.empty:
+            found, fbest = forest_options(m, names, weight)
+            options += found
+            if found:
+                m["matched"] += (" · " if m["matched"] else "") + f"OpenStreetMap area {fbest:.2f}"
+
         # OpenStreetMap's named places, when SHRUG has nothing close
         if best >= SURE or m["kind"] not in OSM_KINDS or osm_state.empty:
             continue
-        ohits = nearby(names, osm_district_keys, osm_state_keys)
+        ohits = nearby(names, settlement_district_keys, settlement_keys)
         obest = max(ohits.values(), default=0.0)
         seen = set()
         for i, sim in sorted(ohits.items(), key=lambda x: -x[1]):
@@ -344,14 +427,14 @@ class Pick(BaseModel):
 
 SELECT_PROMPT = """You help geocode incidents in India's Maoist insurgency. Given the incident text and numbered options for where it happened, choose the option that best gives where the event in the CODED SUMMARY took place, or 0 if none fits.
 
-Rules: prefer the most specific place the text supports; a place the event happened in or at beats one it happened near; a forest, hill, or area named after a place counts as near that place; "under X Police Station" names a jurisdiction, not the place; ignore places that belong to other incidents in the full entry. The coders' district is sometimes wrong, so a close match in a neighboring district can be the right answer.
+Rules: prefer the most specific place the text supports; a place the event happened in or at beats one it happened near; "under X Police Station" names a jurisdiction, not the place; ignore places that belong to other incidents in the full entry. For an event in a forest, hill, or sanctuary, take the first that applies: a village or town the text places the event in or near; a point in the part of the forest within the jurisdiction the text names (police station, mandal, or block); near the place the forest is named after; a point in the middle of the forest. The coders' district is sometimes wrong, so a close match in a neighboring district can be the right answer.
 
 Give the option number and a one-sentence reason that cites the text."""
 
 
 def select(client, cache, inc, texts, options):
     listing = "\n".join(f"{i}. {o['relation']} {o['name']} — {o['evidence']}" for i, o in enumerate(options, 1))
-    key = inc["incident_number"] + "|" + hashlib.sha1(listing.encode()).hexdigest()[:12]
+    key = inc["incident_number"] + "|" + hashlib.sha1((SELECT_PROMPT + listing).encode()).hexdigest()[:12]  # new prompt, new call
     if key in cache:
         return cache[key]["option"], cache[key]["reason"]
     user = f"CODED SUMMARY:\n{inc['incident_summary']}"
@@ -392,6 +475,9 @@ def main():
             for r in links.itertuples()}
     places = pd.read_parquet(DATA / "places.parquet")
     osm = pd.read_parquet(DATA / "osm_places.parquet")
+    areas = Areas()
+    for state_id in sample["state_id"].unique():  # build the subdistrict indexes before the workers share them
+        areas.tree(state_id)
     if args.no_osm:
         osm = osm.head(0)
     ext_cache, sel_cache = (read_jsonl(CACHE / f) for f in ("extractions.jsonl", "selections.jsonl"))
@@ -409,7 +495,7 @@ def main():
     def work(inc):
         texts = satp.get(inc["incident_number"], [])
         mentions = extract(client, ext_cache, inc, texts)
-        options, mentions = candidates(inc, mentions, places, osm)
+        options, mentions = candidates(inc, mentions, places, osm, areas)
         pick, reason = select(client, sel_cache, inc, texts, options) if options else (0, "no options")
         return mentions, options, pick, reason
 
