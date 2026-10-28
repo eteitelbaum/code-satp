@@ -468,7 +468,8 @@ def candidates(inc, mentions, places, osm, areas):
                             "evidence": " · ".join([f"SHRUG {p['place_type']} in {str(p['subdistrict_name']).title()} subdistrict, "
                                                     f"spelling {sim:.2f} to “{m['name']}”",
                                                     f"{m['role']} (“{m['quote']}”)"] + notes),
-                            "label": f"{relation.capitalize()} {p['name']} {p['place_type']}{spelled(sim, m['name'])}",
+                            "label": f"{relation.capitalize()} {p['name']} {p['place_type']}, "
+                                     f"{str(p['subdistrict_name']).title()} subdistrict{spelled(sim, m['name'])}",
                             "why": said(m)
                                    + (f" The {m['kind']} is named after this place (rule 4.3)." if m["kind"] in ("forest", "hill") else "")
                                    + (f" {p['name']} is the closest SHRUG name." if sim < SURE else "") + facts(notes),
@@ -505,7 +506,9 @@ def candidates(inc, mentions, places, osm, areas):
                             "query": m["name"],
                             "evidence": " · ".join([f"OpenStreetMap {h['kind']}{alias}, {where}, spelling {sim:.2f} to “{m['name']}”",
                                                     f"{m['role']} (“{m['quote']}”)"] + notes),
-                            "label": f"{relation.capitalize()} {h['primary']} {h['kind'].replace('_', ' ')}{spelled(sim, m['name'])}",
+                            "label": f"{relation.capitalize()} {h['primary']} {h['kind'].replace('_', ' ')}"
+                                     + (f", {sub_names[h['subdistrict_id']]} subdistrict" if h["subdistrict_id"] in sub_names else "")
+                                     + spelled(sim, m["name"]),
                             "why": said(m) + (f" {h['primary']} is the closest OpenStreetMap name." if sim < SURE else "") + facts(notes),
                             "source_note": f"OpenStreetMap {h['kind'].replace('_', ' ')}"
                                            + (f", listed as “{h['name']}”" if alias else "")
@@ -527,7 +530,22 @@ def candidates(inc, mentions, places, osm, areas):
         if k not in seen:
             seen.add(k)
             out.append(o)
-    return out[:TOP], mentions
+    out = out[:TOP]
+
+    # fewer than five: add the subdistricts the suggested places lie in, for when the place itself is uncertain (rule 7)
+    offered = {o["subdistrict_id"] for o in out if o["relation"] == "subdistrict"}
+    for rank, o in enumerate(list(out), 1):
+        sid = o["subdistrict_id"]
+        if len(out) >= TOP or o["relation"] == "subdistrict" or sid in offered or sid not in sub_names:
+            continue
+        offered.add(sid)
+        out.append({"relation": "subdistrict", "source": "SHRUG", "name": sub_names[sid], "shrid2": "",
+                    "subdistrict_id": sid, "lat": None, "lon": None, "score": 0.0, "query": "",
+                    "evidence": f"subdistrict containing option {rank}, if that place is uncertain",
+                    "label": f"{sub_names[sid]} subdistrict",
+                    "why": f"The subdistrict option {rank} lies in, if you cannot place the event that closely (rule 7).",
+                    "source_note": "SHRUG subdistrict."})
+    return out, mentions
 
 
 # ---------------------------------------------------------------- 3. selection

@@ -146,6 +146,7 @@ def apply_suggestion(o):
     """Fill the label from a suggestion: the place (or OpenStreetMap point), in or near, or the subdistrict."""
     st.session_state[key("suggestion")] = int(o.rank)
     st.session_state.pop(key("precision"), None)  # the radio takes its value from prec_pick on the next run
+    st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {"suggestion"}, key=FOUND_VIA.index)
     if o.source != "OpenStreetMap" and st.session_state.get(key("located_source")) == "OpenStreetMap":
         for k in ("coords_done", "located", "located_shrid", "located_source"):  # a point set by an earlier suggestion
             st.session_state.pop(key(k), None)
@@ -168,6 +169,7 @@ def apply_suggestion(o):
     else:
         st.session_state[key("prec_pick")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
         st.session_state[key("choice")] = o.shrid2
+        st.session_state[key("type")] = "town" if re.search(r"(SHRUG|OpenStreetMap) (town|city)", o.evidence) else "village"
         if o.source == "OpenStreetMap":
             coords = f"{o.lat}, {o.lon}"
             st.session_state[key("coords")] = st.session_state[key("coords_done")] = coords
@@ -323,6 +325,19 @@ def state_subdistricts(state_id):
     shapes = pd.read_parquet(SUBDIST_FILE, filters=[("state_id", "==", state_id)])
     geoms = shapely.from_wkb(shapes["wkb"].values)
     return shapes[["district_id", "subdistrict_id"]].to_dict("records"), shapely.STRtree(geoms)
+
+
+@st.cache_data
+def subdistrict_point(state_id, district_id, subdistrict_id):
+    """A point to show a subdistrict on the map: its centroid, or a point inside it when the centroid falls outside."""
+    shapes = pd.read_parquet(SUBDIST_FILE, filters=[("state_id", "==", state_id)])
+    shape = shapes[(shapes.district_id == district_id) & (shapes.subdistrict_id == subdistrict_id)]
+    if shape.empty:
+        return None
+    geom = shapely.from_wkb(shape["wkb"].iloc[0])
+    c = shapely.centroid(geom)
+    c = c if geom.contains(c) else shapely.point_on_surface(geom)
+    return c.y, c.x
 
 
 def unit_at(state_id, lat, lon):
@@ -497,11 +512,8 @@ with left:
             c_g.link_button("Google", google_maps(o.query or o.name), use_container_width=True)
             c_o.link_button("OSM", osm_map(o.name, o.osm_id, o.lat, o.lon), use_container_width=True)
             st.caption(f"**Why:** {o.why}  \n**Source:** {o.source_note}" if o.why else o.evidence)
-        pick = sug[sug.model_pick]
-        if len(pick):
-            p0 = pick.iloc[0]
-            st.info(("Model's pick: " + (p0["label"] or f"{p0['relation']} {p0['name']}") if p0["rank"] > 0 else "Model: none of these fit")
-                    + f". {p0['model_reason']}")
+        if sug[sug.model_pick]["rank"].eq(0).any():
+            st.caption("The model picked none of these.")
     # places the text puts the event in or near that the search did not find closely (SHRUG spelling below 0.92,
     # nothing in OpenStreetMap); district and state names are never searched, and a matched subdistrict is found
     weak = mentions[(mentions.incident_number == iid)
@@ -657,35 +669,39 @@ with right:
         pts = pd.concat([pts, pd.DataFrame([{"shrid2": "", "name": "pin", "lon": float(inc["longitude"]), "lat": float(inc["latitude"]), "kind": "pin"}])])
     colors = {"candidate": [43, 108, 176, 90], "suggestion": [106, 61, 154, 230], "selected": [221, 107, 32, 230],
               "pin": [200, 30, 30, 230], "located": [34, 139, 34, 230]}
-    pts["color"] = pts["kind"].map(colors)
-    pts["text_color"] = [[120, 120, 120, 200] if k == "candidate" else [20, 20, 20, 255] for k in pts["kind"]]
     # outlines of the forests and sanctuaries among the suggestions (protocol rule 4)
     outlines = load_areas()
     area_sug = sug[(sug["relation"] == "area") & sug["osm_id"].isin(outlines)].drop_duplicates("osm_id") if len(sug) else sug
     features = [{"type": "Feature", "properties": {"name": o.name.split(",")[0]},
                  "geometry": json.loads(shapely.to_geojson(shapely.from_wkb(outlines[o.osm_id])))} for o in area_sug.itertuples()]
-    # fit the view to what matters: the suggestions, the selected place, your point, and the pin when shown
-    focus = pts[pts["kind"] != "candidate"]
-    focus = focus if len(focus) else pts
-    if len(focus):
-        lat0, lat1, lon0, lon1 = focus.lat.min(), focus.lat.max(), focus.lon.min(), focus.lon.max()
-        span = max(lat1 - lat0, (lon1 - lon0) * math.cos(math.radians((lat0 + lat1) / 2)), 0.03)
-        view = pdk.ViewState(latitude=(lat0 + lat1) / 2, longitude=(lon0 + lon1) / 2,
-                             zoom=max(4, min(11, math.log2(390 / span))))  # 420 px tall map, with a margin
-    else:
-        view = pdk.ViewState(latitude=21, longitude=82, zoom=4)
-    st.pydeck_chart(pdk.Deck(
-        layers=[
-            pdk.Layer("GeoJsonLayer", {"type": "FeatureCollection", "features": features}, stroked=True, filled=True,
-                      get_fill_color=[34, 139, 34, 40], get_line_color=[34, 110, 34, 220], line_width_min_pixels=2, pickable=True),
-            pdk.Layer("ScatterplotLayer", pts, get_position="[lon, lat]", get_fill_color="color", get_radius=600, pickable=True),
-            pdk.Layer("TextLayer", pts, get_position="[lon, lat]", get_text="name", get_size=13, get_color="text_color",
-                      get_pixel_offset=[0, -14]),
-        ],
-        initial_view_state=view, tooltip={"text": "{name}"}, map_style=None,
-    ), height=420)
-    st.caption("Purple: suggestions (numbered) · orange: selected · green: your point and forest outlines · red: the India team's pin "
-               "· faint blue: other places named like the coders' entries")
+    map_slot = st.container()  # drawn once the label is known, so a chosen subdistrict can be shown
+
+    def draw_map(pts):
+        pts = pts.assign(color=pts["kind"].map(colors),
+                         text_color=[[120, 120, 120, 200] if k == "candidate" else [20, 20, 20, 255] for k in pts["kind"]])
+        # fit the view to what matters: the suggestions, the selected place, your point, and the pin when shown
+        focus = pts[pts["kind"] != "candidate"]
+        focus = focus if len(focus) else pts
+        if len(focus):
+            lat0, lat1, lon0, lon1 = focus.lat.min(), focus.lat.max(), focus.lon.min(), focus.lon.max()
+            span = max(lat1 - lat0, (lon1 - lon0) * math.cos(math.radians((lat0 + lat1) / 2)), 0.03)
+            view = pdk.ViewState(latitude=(lat0 + lat1) / 2, longitude=(lon0 + lon1) / 2,
+                                 zoom=max(4, min(11, math.log2(390 / span))))  # 420 px tall map, with a margin
+        else:
+            view = pdk.ViewState(latitude=21, longitude=82, zoom=4)
+        map_slot.pydeck_chart(pdk.Deck(
+            layers=[
+                pdk.Layer("GeoJsonLayer", {"type": "FeatureCollection", "features": features}, stroked=True, filled=True,
+                          get_fill_color=[34, 139, 34, 40], get_line_color=[34, 110, 34, 220], line_width_min_pixels=2, pickable=True),
+                pdk.Layer("ScatterplotLayer", pts, get_position="[lon, lat]", get_fill_color="color", get_radius=600, pickable=True),
+                pdk.Layer("TextLayer", pts, get_position="[lon, lat]", get_text="name", get_size=13, get_color="text_color",
+                          get_pixel_offset=[0, -14]),
+            ],
+            initial_view_state=view, tooltip={"text": "{name}"}, map_style=None,
+        ), height=420)
+        map_slot.caption("Purple: suggestions (numbered) · orange: selected (for a subdistrict, its center) · green: your point "
+                         "and forest outlines · red: the India team's pin · faint blue: other places named like the coders' entries")
+
     if pre_shrid:
         st.info(f"Pre-selected ({pre_source}): {labels_by_shrid.get(pre_shrid, pre_shrid)}. Confirm or change it.")
 
@@ -726,12 +742,13 @@ with right:
         if subdistrict_id:  # the label's district follows the chosen subdistrict
             district_id = sub_district[subdistrict_id]
             in_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == district_id)]
-    place_type = st.selectbox("What kind of place is it?", PLACE_TYPES, key=key("type"),
-                              index=PLACE_TYPES.index(default("place_type", "village")))
+    # suggestions set these two, so they take their starting values from session state, not index or default
+    st.session_state.setdefault(key("type"), default("place_type", "village"))
+    st.session_state.setdefault(key("via"), [v for v in default("found_via", "").split("|") if v])
+    place_type = st.selectbox("What kind of place is it?", PLACE_TYPES, key=key("type"))
     reason = st.selectbox("If not a village or town: why?", REASONS, key=key("reason"),
                           index=REASONS.index(default("reason", "")))
-    found_via = st.multiselect("How did you find it?", FOUND_VIA, key=key("via"),
-                               default=[v for v in default("found_via", "").split("|") if v])
+    found_via = st.multiselect("How did you find it?", FOUND_VIA, key=key("via"))
     cut_off = st.checkbox("Summary is cut off (labeled from the SATP page)", key=key("cut_off"),
                           value=default("summary_cut_off", "False") == "True")
     notes = st.text_input("Notes", key=key("notes"), value=default("notes", ""))
@@ -771,6 +788,10 @@ with right:
         where = f"{point[0]:.4f}, {point[1]:.4f} ({point_source})" if point else "none"
         st.caption(f"Saved as: point {where} · unit for analysis: {unit_name or unit_id} ({unit_type})"
                    + (" · the point is outside every village" if unit_type == "subdistrict" and point else ""))
+
+    if precision == "subdistrict" and subdistrict_id and (c := subdistrict_point(inc["state_id"], district_id, subdistrict_id)):
+        pts = pd.concat([pts, pd.DataFrame([{"shrid2": "", "name": f"{unit_name} subdistrict", "lon": c[1], "lat": c[0], "kind": "selected"}])])
+    draw_map(pts)
 
     # which suggestion the label matches (rank 1-5, or "not in list"), and the model's pick (0 = none)
     suggestion_rank, model_pick_rank = "", ""
