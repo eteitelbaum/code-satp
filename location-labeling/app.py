@@ -87,7 +87,7 @@ def district_places(state_id, district_id):
 
 @st.cache_data
 def load_satp():
-    """SATP entries for each linked incident: {incident_number: (texts, page url, shared with another incident)}."""
+    """SATP entries for each linked incident: {incident_number: (texts, page url)}."""
     if not (LINKS_FILE.exists() and ENTRIES_FILE.exists()):
         return {}
     entries = pd.read_csv(ENTRIES_FILE, dtype=str)
@@ -96,7 +96,7 @@ def load_satp():
     satp = {}
     for r in links.itertuples():
         keys = [(r.entry_month, r.entry_id)] + [tuple(a.split()) for a in r.also.split(";") if a]
-        satp[r.incident_number] = ([text[k] for k in keys], r.url, r.shared_entry == "True")
+        satp[r.incident_number] = ([text[k] for k in keys], r.url)
     return satp
 
 
@@ -303,8 +303,8 @@ existing = existing.iloc[0] if len(existing) else None
 places = district_places(inc["state_id"], inc["district_id_2011"]) if inc["district_id_2011"] else load_places().iloc[0:0]
 names = query_names(inc)
 cands = shortlist(places, names)
-satp_texts, satp_page, shared = satp.get(iid, ([], "", False))
-text = "\n\n".join(satp_texts) or inc["incident_summary"]  # SATP's text, or the coded summary when it is not on SATP
+satp_texts, satp_page = satp.get(iid, ([], ""))
+text = "\n\n".join([inc["incident_summary"]] + satp_texts)  # places in the summary or the full SATP entry
 in_text = names_in_text(places, text)
 # "Dantewada District" names a district, not the town; keep a name only if it also appears without "District"
 in_text = in_text[[bool(re.search(rf"\b{re.escape(n)}\b(?!\s+district)", text, flags=re.I)) for n in in_text["name"]]]
@@ -341,19 +341,15 @@ with left:
     shrug_in_text = in_text["name"].tolist()
     show = lambda t: st.markdown(f"<div style='font-size:1.1em;line-height:1.6'>{highlight(t, names, shrug_in_text)}</div>",
                                  unsafe_allow_html=True)
+    show(inc["incident_summary"])
+    if not re.search(r"[.!?\"'”’)\]]$", inc["incident_summary"].strip()):
+        st.warning("This summary may be cut off (no final punctuation)" + (": see the full SATP entry." if satp_texts else "."))
     if satp_texts:
-        st.caption("SATP entry" + (" (the coded summary draws on several entries)" if len(satp_texts) > 1 else ""))
-        for t in satp_texts:
-            show(t)
-        if shared:
-            st.info("This SATP entry covers more than one coded incident: the coded summary below shows which one this is.")
-        with st.expander("Coded summary", expanded=shared):
-            show(inc["incident_summary"])
+        with st.expander("Full SATP entry" + (" (several entries)" if len(satp_texts) > 1 else "") + ": may describe other incidents too"):
+            for t in satp_texts:
+                show(t)
     else:
-        st.info("Not on SATP's current pages: the coded summary is the only text.")
-        show(inc["incident_summary"])
-        if not re.search(r"[.!?\"'”’)\]]$", inc["incident_summary"].strip()):
-            st.warning("This summary may be cut off (no final punctuation).")
+        st.caption("Not on SATP's current pages: the coded summary is the only text.")
     st.caption(f"Coded village: **{inc['village_name'] or '—'}** · other locations: **{inc['other_locations'] or '—'}**  "
                "· yellow = names the coders recorded · green = places in the text the coders did not record")
     gq = quote_plus(f"{names[0] if names else ''} {inc['district']} {inc['state']} India")
@@ -369,7 +365,9 @@ with left:
         if p["query"]:
             why = f"spelling match to “{p['query']}” {p['score']:.2f}"
         else:
-            why = "named in the text" + ("" if coder_recorded(p["name"], names) else ", not recorded by the coders")
+            in_summary = re.search(rf"\b{re.escape(p['name'])}\b", inc["incident_summary"], flags=re.I)
+            why = ("named in the summary" if in_summary else "named only in the full SATP entry") + (
+                "" if coder_recorded(p["name"], names) else ", not recorded by the coders")
         label = f"{'● ' if is_on else ''}{p['label']} · {why}"
         if st.button(label, key=key(f"c_{p['shrid2']}"), type="primary" if is_on else "secondary"):
             st.session_state[key("choice")] = p["shrid2"]
