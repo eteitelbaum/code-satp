@@ -117,7 +117,11 @@ def load_suggestions():
     sug = pd.read_csv(SUGGEST_FILE, dtype={"incident_number": str, "shrid2": str, "subdistrict_id": str})
     if "osm_id" not in sug:  # runs before OpenStreetMap IDs were kept
         sug["osm_id"] = ""
-    text_cols = ["shrid2", "subdistrict_id", "query", "evidence", "model_reason", "name", "relation", "source", "osm_id"]
+    for c in ("label", "why", "source_note"):  # plain wording; runs before it was added fall back to the evidence
+        if c not in sug:
+            sug[c] = ""
+    text_cols = ["shrid2", "subdistrict_id", "query", "evidence", "model_reason", "name", "relation", "source", "osm_id",
+                 "label", "why", "source_note"]
     sug[text_cols] = sug[text_cols].fillna("")
     sug["model_pick"] = sug["model_pick"].astype(str) == "True"
     mentions = pd.read_csv(MENTIONS_FILE, dtype=str).fillna("")
@@ -150,10 +154,12 @@ def apply_suggestion(o):
         st.session_state[key("prec_pick")] = AREA
         st.session_state[key("choice")] = ""
         st.session_state[key("coords")] = st.session_state[key("coords_done")] = f"{o.lat}, {o.lon}"
-        st.session_state[key("located")] = (o.lat, o.lon, f"a point in {o.name} (OpenStreetMap)")
+        shown_as = o.label or f"A point in {o.name}"
+        st.session_state[key("located")] = (o.lat, o.lon, shown_as[0].lower() + shown_as[1:] + " (OpenStreetMap)")
         st.session_state[key("located_shrid")] = ""
         st.session_state[key("located_source")] = "OpenStreetMap"
-        st.session_state[key("area_name")] = o.name
+        st.session_state[key("area_name")] = o.name  # saved as the place name
+        st.session_state[key("area_label")] = shown_as
         st.session_state[key("type")] = "hill" if re.search(r"OpenStreetMap (peak|hill|ridge)", o.evidence) else "forest"
     else:
         st.session_state[key("prec_pick")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
@@ -470,16 +476,17 @@ with left:
             on = bool(o.shrid2) and st.session_state[key("choice")] == o.shrid2
             mark = " ★ model's pick" if o.model_pick else ""
             c_opt, c_g, c_o = st.columns([6, 1, 1], vertical_alignment="center")
-            if c_opt.button(f"{'● ' if on else ''}{o.rank}. {o.relation} {o.name} · {o.source}{mark}", key=key(f"s_{o.rank}"),
+            title = o.label or f"{o.relation} {o.name} · {o.source}"
+            if c_opt.button(f"{'● ' if on else ''}{o.rank}. {title}{mark}", key=key(f"s_{o.rank}"),
                             type="primary" if on else "secondary", use_container_width=True):
                 apply_suggestion(o)
             c_g.link_button("Google", google_maps(o.query or o.name), use_container_width=True)
             c_o.link_button("OSM", osm_map(o.name, o.osm_id, o.lat, o.lon), use_container_width=True)
-            st.caption(o.evidence)
+            st.caption(f"**Why:** {o.why}  \n**Source:** {o.source_note}" if o.why else o.evidence)
         pick = sug[sug.model_pick]
         if len(pick):
             p0 = pick.iloc[0]
-            st.info(("Model's pick: " + f"{p0['relation']} {p0['name']}" if p0["rank"] > 0 else "Model: none of these fit")
+            st.info(("Model's pick: " + (p0["label"] or f"{p0['relation']} {p0['name']}") if p0["rank"] > 0 else "Model: none of these fit")
                     + f". {p0['model_reason']}")
     # places the text puts the event in or near that the search did not find closely (SHRUG spelling below 0.92,
     # nothing in OpenStreetMap); district and state names are never searched, and a matched subdistrict is found
@@ -668,7 +675,7 @@ with right:
     if precision in AT_PLACE:
         st.markdown(f"**Selected:** {labels_by_shrid.get(choice, '— none: pick a candidate or search —')}")
     elif precision == AREA:
-        st.markdown(f"**Point in:** {st.session_state.get(key('area_name')) or default('place_name', '') or '— pick a forest suggestion, or paste a point in the forest —'}")
+        st.markdown(f"**Point:** {st.session_state.get(key('area_label')) or default('place_name', '') or '— pick a forest suggestion, or paste a point in the forest —'}")
     elif precision == "subdistrict":
         # the coded district's subdistricts first, then the selected place's district if it differs
         coded_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == inc["district_id_2011"])]

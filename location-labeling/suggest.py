@@ -199,6 +199,43 @@ def extract(client, cache, inc, texts):
 
 # ---------------------------------------------------------------- 2. candidates
 
+# ---- plain wording for the app (the model sees `evidence`, which stays as it is)
+
+ABBREVIATIONS = [(r"\bW\.?L\.?S\b\.?", "Wildlife Sanctuary"), (r"\bR\.?F\b\.?", "Reserve Forest"),
+                 (r"\bP\.?F\b\.?", "Protected Forest"), (r"\bN\.?P\b\.?", "National Park")]
+
+
+def pretty(name):
+    """Spell out abbreviations in forest and sanctuary names ("Karlapat WLS" -> "Karlapat Wildlife Sanctuary")."""
+    for pattern, full in ABBREVIATIONS:
+        name = re.sub(pattern, full, name)
+    return name
+
+
+def said(m):
+    return f"The text says “{m['quote']}”."
+
+
+def spelled(sim, query):
+    """Label suffix when the matched name is spelled differently from the text."""
+    if sim >= 0.995:
+        return ""
+    if sim >= SURE:
+        return f" (spelled “{query}” in the text)"
+    return f": a different spelling, may not be {query}"
+
+
+def similarity(sim):
+    return "same spelling" if sim >= 0.995 else f"spelling similarity {sim:.2f}"
+
+
+def facts(notes):
+    """The context notes as sentences."""
+    plain = {"in the named subdistrict": "It lies in the subdistrict the text names.",
+             "within 15 km of the named police station": "It is within 15 km of the police station the text names."}
+    return "".join(" " + plain.get(n, f"It is {n}.") for n in notes)
+
+
 class Areas:
     """Outlines of OpenStreetMap forests and protected areas, and SHRUG subdistricts, for protocol rule 4."""
 
@@ -246,7 +283,7 @@ def candidates(inc, mentions, places, osm, areas):
 
     # context: subdistricts named in the text, named police stations' locations, and the subdistricts
     # of the jurisdictions the text names ("under X Police Station", "X mandal")
-    named_subs, stations, jurisdictions = set(), [], {}
+    named_subs, stations, jurisdictions, jurisdiction_why = set(), [], {}, {}
     for m in mentions:
         if m["role"] == "another incident":
             continue
@@ -255,11 +292,15 @@ def candidates(inc, mentions, places, osm, areas):
                 if spelling(norm(m["name"]), norm(s["subdistrict_name"])) >= 0.85:
                     named_subs.add(s["subdistrict_id"])
                     jurisdictions.setdefault(s["subdistrict_id"], f"named in the text (“{m['quote']}”)")
+                    jurisdiction_why.setdefault(s["subdistrict_id"], f"The text names the block or mandal (“{m['quote']}”).")
         elif m["role"] == "jurisdiction" and m["kind"] not in ("district", "state"):
             for q in query_names(m["name"]):
                 for _, sim, i in process.extract(norm(q), keys, scorer=spelling, limit=3):
                     if sim >= 0.88:
-                        jurisdictions.setdefault(district.loc[i, "subdistrict_id"], f"where {m['name']} lies, a jurisdiction in the text (“{m['quote']}”)")
+                        sid = district.loc[i, "subdistrict_id"]
+                        jurisdictions.setdefault(sid, f"where {m['name']} lies, a jurisdiction in the text (“{m['quote']}”)")
+                        jurisdiction_why.setdefault(sid, f"The text names {m['name']} as the jurisdiction (“{m['quote']}”), "
+                                                         f"and {m['name']} is in {sub_names.get(sid, 'that')} subdistrict.")
         if m["kind"] == "police station":
             exact = district[keys == norm(m["name"])]
             if len(exact):
@@ -308,22 +349,39 @@ def candidates(inc, mentions, places, osm, areas):
             if h["osm_id"] not in areas.outline:  # a peak or hill mapped as a point
                 out.append({**base, "name": h["primary"], "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
                             "score": middle,
-                            "evidence": " · ".join([f"OpenStreetMap {h['kind']} (a point), spelling {sim:.2f} to “{m['name']}”", role] + notes)})
+                            "evidence": " · ".join([f"OpenStreetMap {h['kind']} (a point), spelling {sim:.2f} to “{m['name']}”", role] + notes),
+                            "label": f"A point at {pretty(h['primary'])}",
+                            "why": f"{said(m)} OpenStreetMap maps the {h['kind']} as a single point (rule 4.4).{facts(notes)}",
+                            "source_note": f"OpenStreetMap {h['kind']}, {similarity(sim)}" + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
                 continue
             geom, km2 = areas.outline[h["osm_id"]]
             split = areas.split(inc["state_id"], geom)
             shares = ", ".join(f"{share:.0%} {sub_names.get(sid, 'another subdistrict')}" for sid, share, _ in split[:3] if share >= 0.01)
             desc = f"OpenStreetMap {h['kind']}, {km2:.0f} km² ({shares}), spelling {sim:.2f} to “{m['name']}”"
+            parts = [(sid, share) for sid, share, _ in split[:3] if share >= 0.01]
+            source_note = (f"OpenStreetMap {h['kind']}, {km2:.0f} km²: "
+                           + ", ".join(f"{share:.0%} in {sub_names.get(sid, 'another subdistrict')}" for sid, share in parts)
+                           + (" subdistricts" if len(parts) > 1 else " subdistrict")
+                           + ("" if sim >= 0.995 else f"; {similarity(sim)} to “{m['name']}”") + ".")
+            made_part = False
             for sid, share, part in split:
                 if sid in jurisdictions and share >= 0.01:
                     p = shapely.point_on_surface(part)
                     sub = sub_names.get(sid, "the named")
+                    made_part = True
                     out.append({**base, "name": f"{h['primary']}, part in {sub} subdistrict", "subdistrict_id": sid,
                                 "lat": p.y, "lon": p.x, "score": sim + weight + 0.15,  # above "near" the namesake (rule 4.3)
-                                "evidence": " · ".join([desc, f"point in the part within {sub} subdistrict, {jurisdictions[sid]} (rule 4.2)", role])})
+                                "evidence": " · ".join([desc, f"point in the part within {sub} subdistrict, {jurisdictions[sid]} (rule 4.2)", role]),
+                                "label": f"A point in {pretty(h['primary'])}, in its {sub} subdistrict part",
+                                "why": f"{said(m)} {jurisdiction_why[sid]} {sub} subdistrict holds {share:.0%} of the {h['kind']} (rule 4.2).",
+                                "source_note": source_note})
             out.append({**base, "name": h["primary"], "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
                         "score": middle,
-                        "evidence": " · ".join([desc, "point in the middle of it (rule 4.4)", role] + notes)})
+                        "evidence": " · ".join([desc, "point in the middle of it (rule 4.4)", role] + notes),
+                        "label": f"A point in the middle of {pretty(h['primary'])}",
+                        "why": f"{said(m)} The middle of the whole {h['kind']}" + (", ignoring the jurisdiction" if made_part else "")
+                               + f" (rule 4.4).{facts(notes)}",
+                        "source_note": source_note})
         return out, best
 
     options = []
@@ -343,7 +401,10 @@ def candidates(inc, mentions, places, osm, areas):
                                     "name": str(p["subdistrict_name"]).title(), "shrid2": "",
                                     "subdistrict_id": p["subdistrict_id"], "lat": None, "lon": None,
                                     "score": sim + ROLE_WEIGHT["jurisdiction"], "query": m["name"],
-                                    "evidence": f"subdistrict of {p['name']}, a jurisdiction in the text (“{m['quote']}”)"})
+                                    "evidence": f"subdistrict of {p['name']}, a jurisdiction in the text (“{m['quote']}”)",
+                                    "label": f"{str(p['subdistrict_name']).title()} subdistrict",
+                                    "why": f"{said(m)} That names a jurisdiction, and {p['name']} is in {str(p['subdistrict_name']).title()} subdistrict (rule 2).",
+                                    "source_note": "SHRUG subdistrict" + ("" if sim >= 0.995 else f"; {p['name']} has {similarity(sim)} to “{m['name']}”") + "."})
                     m["matched"] = f"SHRUG {sim:.2f} (jurisdiction)"
             continue
         weight = ROLE_WEIGHT.get(m["role"], 0.0)
@@ -355,7 +416,10 @@ def candidates(inc, mentions, places, osm, areas):
                     options.append({"relation": "subdistrict", "source": "SHRUG", "name": s["subdistrict_name"].title(),
                                     "shrid2": "", "subdistrict_id": s["subdistrict_id"], "lat": None, "lon": None,
                                     "score": sim + 0.1 * (weight + 0.1), "query": m["name"],
-                                    "evidence": f"subdistrict named in the text (“{m['quote']}”), spelling {sim:.2f}"})
+                                    "evidence": f"subdistrict named in the text (“{m['quote']}”), spelling {sim:.2f}",
+                                    "label": f"{s['subdistrict_name'].title()} subdistrict",
+                                    "why": f"{said(m)} That names the block or mandal.",
+                                    "source_note": "SHRUG subdistrict" + ("" if sim >= 0.995 else f", {similarity(sim)} to “{m['name']}”") + "."})
                     m["matched"] = "SHRUG subdistrict"
             continue
         names = query_names(m["name"])
@@ -373,7 +437,13 @@ def candidates(inc, mentions, places, osm, areas):
                             "query": m["name"],
                             "evidence": " · ".join([f"SHRUG {p['place_type']} in {str(p['subdistrict_name']).title()} subdistrict, "
                                                     f"spelling {sim:.2f} to “{m['name']}”",
-                                                    f"{m['role']} (“{m['quote']}”)"] + notes)})
+                                                    f"{m['role']} (“{m['quote']}”)"] + notes),
+                            "label": f"{relation.capitalize()} {p['name']} {p['place_type']}{spelled(sim, m['name'])}",
+                            "why": said(m)
+                                   + (f" The {m['kind']} is named after this place (rule 4.3)." if m["kind"] in ("forest", "hill") else "")
+                                   + (f" {p['name']} is the closest SHRUG name." if sim < SURE else "") + facts(notes),
+                            "source_note": f"SHRUG {p['place_type']} in {str(p['subdistrict_name']).title()} subdistrict, {similarity(sim)}"
+                                           + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
         if best:
             m["matched"] = f"SHRUG {best:.2f}"
 
@@ -404,7 +474,14 @@ def candidates(inc, mentions, places, osm, areas):
                             "score": sim + weight - 0.05 + adjust,  # a little below an equal SHRUG match
                             "query": m["name"],
                             "evidence": " · ".join([f"OpenStreetMap {h['kind']}{alias}, {where}, spelling {sim:.2f} to “{m['name']}”",
-                                                    f"{m['role']} (“{m['quote']}”)"] + notes)})
+                                                    f"{m['role']} (“{m['quote']}”)"] + notes),
+                            "label": f"{relation.capitalize()} {h['primary']} {h['kind'].replace('_', ' ')}{spelled(sim, m['name'])}",
+                            "why": said(m) + (f" {h['primary']} is the closest OpenStreetMap name." if sim < SURE else "") + facts(notes),
+                            "source_note": f"OpenStreetMap {h['kind'].replace('_', ' ')}"
+                                           + (f", listed as “{h['name']}”" if alias else "")
+                                           + (f", inside SHRUG village {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"]
+                                              else ", outside every SHRUG village")
+                                           + f", {similarity(sim)}" + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
         if obest:
             m["matched"] += (" · " if m["matched"] else "") + f"OpenStreetMap {obest:.2f}"
 
