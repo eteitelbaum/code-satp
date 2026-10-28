@@ -10,6 +10,7 @@ resume at any time.
 """
 
 import html
+import json
 import math
 import re
 from datetime import datetime
@@ -30,6 +31,8 @@ SHAPES_FILE = ROOT / "data" / "place_shapes.parquet"
 SUBDIST_FILE = ROOT / "data" / "subdistrict_shapes.parquet"
 SUGGEST_FILE = ROOT / "data" / "suggestions.csv"  # from suggest.py
 MENTIONS_FILE = ROOT / "data" / "mentions.csv"
+RUNS_FILE = ROOT / "data" / "suggest" / "runs.jsonl"  # suggest.py runs: tokens, cost, failures
+BILLING = "https://platform.openai.com/settings/organization/billing/overview"
 LABELS_FILE = ROOT / "labels" / "labels.csv"
 LINKS_FILE = ROOT / "data" / "satp_links.csv"  # from link_satp.py
 ENTRIES_FILE = ROOT / "data" / "satp_entries.csv"  # from fetch_satp.py
@@ -340,6 +343,15 @@ with st.sidebar:
     queue = sample[sample.split == split].sort_values("order", key=lambda s: s.astype(int)).reset_index(drop=True)
     n_done = queue.incident_number.isin(done).sum()
     st.progress(n_done / len(queue), text=f"{n_done} of {len(queue)} labeled")
+    runs = [json.loads(x) for x in RUNS_FILE.read_text().splitlines() if x.strip()] if RUNS_FILE.exists() else []
+    runs = [r for r in runs if r["split"] == split]
+    if runs:
+        r = runs[-1]
+        problem = "" if r["status"] == "finished" else f" ⚠️ {r['status']}."
+        st.caption(f"Suggestions: run {r['key'][:10]}, {r['incidents']} incidents, {len(r['failed'])} failed, "
+                   f"about ${r['estimated_cost_usd']:.2f}.{problem} [OpenAI balance]({BILLING})")
+    else:
+        st.caption("Suggestions: none yet for this split (run suggest.py).")
     # incidents come in the sample's random order: you can go back to earlier ones, but not past the first unlabeled one
     todo = queue.index[~queue.incident_number.isin(done)]
     frontier = int(todo[0]) if len(todo) else len(queue) - 1
@@ -419,6 +431,8 @@ with left:
     st.markdown(f"[SATP page]({satp_page or inc['satp_url']}) · [Google Maps](https://www.google.com/maps/search/{gq})")
 
     sug = suggestions[suggestions.incident_number == iid]
+    if not len(sug) and len(suggestions):
+        st.caption("No suggestions for this incident: suggest.py has not reached it, or it failed (see the sidebar).")
     if len(sug):
         st.subheader("Suggestions")
         for o in sug[sug["rank"] > 0].itertuples():

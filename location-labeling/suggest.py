@@ -15,7 +15,10 @@ For each incident in a split:
    with a one-sentence reason.
 
 Model calls and OpenStreetMap lookups are cached in location-labeling/data/suggest/, so a
-rerun only does new work. The app reads the outputs and calls nothing.
+rerun only does new work. The app reads the outputs and calls nothing. Each run appends its
+tokens, estimated cost, and any failed incidents to data/suggest/runs.jsonl (shown in the
+app's sidebar). Temporary API errors are retried; if the account is out of credit the run
+stops, keeping what it has done, and a rerun picks up from there.
 
 Run from the repository root after link_satp.py, with OPENAI_API_KEY in .env:
     python location-labeling/suggest.py validation [--limit N]
@@ -30,7 +33,9 @@ import hashlib
 import json
 import math
 import re
+import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -38,6 +43,7 @@ import pandas as pd
 import requests
 import shapely
 from dotenv import load_dotenv
+import openai
 from openai import OpenAI
 from pydantic import BaseModel
 from rapidfuzz import fuzz, process
@@ -52,6 +58,9 @@ MATCH = 0.80  # spelling similarity for a SHRUG candidate
 SURE = 0.92  # a SHRUG match this close needs no OpenStreetMap lookup
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
 HEADERS = {"User-Agent": "code-satp research (https://github.com/eteitelbaum/code-satp)"}
+PRICE = {"prompt": 0.15 / 1e6, "completion": 0.60 / 1e6}  # GPT-4o-mini, US$ per token (estimate)
+BILLING = "https://platform.openai.com/settings/organization/billing/overview"
+USAGE = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
 
 # ranking weights, added to spelling similarity
 ROLE_WEIGHT = {"where it happened": 0.3, "near where it happened": 0.2, "jurisdiction": -0.1}
@@ -85,6 +94,28 @@ def query_names(name):
 
 def km(lat1, lon1, lat2, lon2):
     return 111.32 * math.hypot(lat1 - lat2, (lon1 - lon2) * math.cos(math.radians(lat1)))
+
+
+def call_model(client, **kwargs):
+    """One model call, retried on temporary errors; stops the run if the account is out of credit."""
+    for wait in (5, 20, 60, None):
+        try:
+            r = client.chat.completions.parse(**kwargs)
+            USAGE["calls"] += 1
+            USAGE["prompt_tokens"] += r.usage.prompt_tokens
+            USAGE["completion_tokens"] += r.usage.completion_tokens
+            return r
+        except openai.RateLimitError as e:
+            if "insufficient_quota" in str(e):
+                raise SystemExit(f"OpenAI credit exhausted: refill at {BILLING}, then rerun (finished work is cached).")
+            error = e
+        except openai.AuthenticationError:
+            raise SystemExit("OpenAI rejected the API key: check OPENAI_API_KEY in .env.")
+        except (openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as e:
+            error = e
+        if wait is None:
+            raise error
+        time.sleep(wait)
 
 
 def read_jsonl(path):
@@ -137,8 +168,8 @@ def extract(client, cache, inc, texts):
     user = f"CODED SUMMARY:\n{inc['incident_summary']}"
     if texts:
         user += "\n\nFULL SATP ENTRY:\n" + "\n\n".join(texts)
-    r = client.chat.completions.parse(
-        model=MODEL, temperature=0, response_format=Extraction,
+    r = call_model(
+        client, model=MODEL, temperature=0, response_format=Extraction,
         messages=[{"role": "system", "content": EXTRACT_PROMPT}, {"role": "user", "content": user}],
     )
     mentions = [m.model_dump() for m in r.choices[0].message.parsed.mentions]
@@ -157,7 +188,10 @@ def osm_lookup(cache, name, district_key, viewbox):
         return cache[key]["hits"]
     time.sleep(1.1)  # Nominatim's usage policy: at most one request a second
     params = {"q": name, "format": "jsonv2", "countrycodes": "in", "viewbox": viewbox, "bounded": 1, "limit": 3}
-    r = requests.get(NOMINATIM, params=params, headers=HEADERS, timeout=30)
+    try:
+        r = requests.get(NOMINATIM, params=params, headers=HEADERS, timeout=30)
+    except requests.RequestException:
+        return []  # not cached, so a rerun tries again
     hits = [{"name": h.get("name") or h["display_name"].split(",")[0], "type": h.get("addresstype") or h.get("type"),
              "lat": float(h["lat"]), "lon": float(h["lon"]), "display": h["display_name"]}
             for h in (r.json() if r.ok else [])]
@@ -222,7 +256,7 @@ def candidates(inc, mentions, places, shapes, osm_cache, use_osm=True):
     for m in mentions:
         m["matched"] = ""
         if m["role"] in ("another incident", "other place in this incident") or m["kind"] in ("district", "state") \
-                or norm(m["name"]) in district_names:
+                or (norm(m["name"]) in district_names and m["kind"] not in SETTLEMENT_KINDS):  # keep "Ranchi" the town
             continue
         if m["role"] == "jurisdiction" and m["kind"] != "mandal or block":
             # "under X Police Station": the subdistrict X lies in, not X itself (protocol rule 2)
@@ -338,8 +372,8 @@ def select(client, cache, inc, texts, options):
     if texts:
         user += "\n\nFULL SATP ENTRY:\n" + "\n\n".join(texts)
     user += f"\n\nOPTIONS:\n{listing}\n0. none of these"
-    r = client.chat.completions.parse(
-        model=MODEL, temperature=0, response_format=Pick,
+    r = call_model(
+        client, model=MODEL, temperature=0, response_format=Pick,
         messages=[{"role": "system", "content": SELECT_PROMPT}, {"role": "user", "content": user}],
     )
     pick = r.choices[0].message.parsed
@@ -374,12 +408,29 @@ def main():
     shapes = Shapes()
     ext_cache, sel_cache, osm_cache = (read_jsonl(CACHE / f) for f in ("extractions.jsonl", "selections.jsonl", "osm.jsonl"))
 
-    rows, mention_rows = [], []
+    rows, mention_rows, failed = [], [], []
+    run = {"key": datetime.now().isoformat(timespec="seconds"), "split": args.split, "incidents": len(sample)}
+
+    def log(status):
+        cost = USAGE["prompt_tokens"] * PRICE["prompt"] + USAGE["completion_tokens"] * PRICE["completion"]
+        append_jsonl(CACHE / "runs.jsonl", {**run, **USAGE, "estimated_cost_usd": round(cost, 4),
+                                            "failed": failed, "status": status})
+        print(f"{status}: {USAGE['calls']} model calls, {USAGE['prompt_tokens'] + USAGE['completion_tokens']:,} tokens, "
+              f"about ${cost:.2f}; failed incidents: {len(failed)}")
+
     for n, inc in enumerate(sample.to_dict("records"), 1):
         texts = satp.get(inc["incident_number"], [])
-        mentions = extract(client, ext_cache, inc, texts)
-        options, mentions = candidates(inc, mentions, places, shapes, osm_cache, use_osm=not args.no_osm)
-        pick, reason = select(client, sel_cache, inc, texts, options) if options else (0, "no options")
+        try:
+            mentions = extract(client, ext_cache, inc, texts)
+            options, mentions = candidates(inc, mentions, places, shapes, osm_cache, use_osm=not args.no_osm)
+            pick, reason = select(client, sel_cache, inc, texts, options) if options else (0, "no options")
+        except SystemExit as e:
+            log(f"stopped at incident {n} of {len(sample)}: {e}")
+            sys.exit(str(e))
+        except Exception as e:  # one incident's failure should not end the run
+            failed.append(inc["incident_number"])
+            print(f"{inc['incident_number']} failed: {e}", flush=True)
+            continue
         for m in mentions:
             mention_rows.append({"incident_number": inc["incident_number"], **m})
         for rank, o in enumerate(options, 1):
@@ -398,6 +449,7 @@ def main():
     print(f"{len(sample)} incidents; with options: {len(per)}; mean options {per.mean():.1f}; "
           f"model picked none: {(sug['rank'] == 0).sum()}")
     print(sug[sug["rank"] > 0]["source"].value_counts().to_string())
+    log("finished")
 
 
 if __name__ == "__main__":
