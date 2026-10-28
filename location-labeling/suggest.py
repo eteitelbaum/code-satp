@@ -131,12 +131,15 @@ def fuzzy(names, keys, limit, parts=None):
     return out
 
 
-def station_places(names, keys, parts):
+def station_places(names, keys, parts, district):
     """SHRUG places a police station's name points to: exact or whole-word matches if any, else near spellings
-    ("Bacheli" -> Bade Bacheli, not Acheli; "Bandharia" -> Bhandaria)."""
+    ("Bacheli" -> Bade Bacheli, not Acheli; "Bandharia" -> Bhandaria). When some of them lie in a subdistrict
+    that shares the station's name, keep only those (the Bhandaria in Bhandaria subdistrict, not the one in Kandi)."""
     hits = fuzzy(names, keys, 3, parts)
-    close = {i: sim for i, sim in hits.items() if sim >= 0.95}
-    return close or {i: sim for i, sim in hits.items() if sim >= 0.88}
+    hits = {i: sim for i, sim in hits.items() if sim >= 0.95} or {i: sim for i, sim in hits.items() if sim >= 0.88}
+    named = {i: sim for i, sim in hits.items()
+             if max(spelling(norm(q), norm(district.loc[i, "subdistrict_name"])) for q in names) >= 0.88}
+    return named or hits
 
 
 def km(lat1, lon1, lat2, lon2):
@@ -326,7 +329,7 @@ def candidates(inc, mentions, places, osm, areas):
                     jurisdictions.setdefault(s["subdistrict_id"], f"named in the text (“{m['quote']}”)")
                     jurisdiction_why.setdefault(s["subdistrict_id"], f"The text names the block or mandal (“{m['quote']}”).")
         elif m["role"] == "jurisdiction" and m["kind"] not in ("district", "state"):
-            for i in station_places(query_names(m["name"]), keys, district_parts):
+            for i in station_places(query_names(m["name"]), keys, district_parts, district):
                 sid = district.loc[i, "subdistrict_id"]
                 jurisdictions.setdefault(sid, f"where {m['name']} lies, a jurisdiction in the text (“{m['quote']}”)")
                 jurisdiction_why.setdefault(sid, f"The text names {m['name']} as the jurisdiction (“{m['quote']}”), "
@@ -422,7 +425,7 @@ def candidates(inc, mentions, places, osm, areas):
             continue
         if m["role"] == "jurisdiction" and m["kind"] != "mandal or block":
             # "under X Police Station": the subdistrict X lies in, not X itself (protocol rule 2)
-            for i, sim in station_places(query_names(m["name"]), keys, district_parts).items():
+            for i, sim in station_places(query_names(m["name"]), keys, district_parts, district).items():
                 p = district.loc[i]
                 options.append({"relation": "subdistrict", "source": "SHRUG",
                                 "name": str(p["subdistrict_name"]).title(), "shrid2": "",
