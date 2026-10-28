@@ -37,11 +37,12 @@ LEGACY = {"village or town": "in a village or town"}  # earlier label values
 PLACE_TYPES = ["village", "town", "police station", "camp", "forest", "hill", "river", "road", "other"]
 REASONS = ["", "hamlet", "local name", "area only", "camp", "not found", "other"]
 FOUND_VIA = ["shortlist", "search", "Google Maps", "SATP page", "pin"]
+SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
 LABEL_COLUMNS = [
     "incident_number", "split", "order", "precision", "shrid2", "place_name", "subdistrict_id",
     "subdistrict_name", "state_id", "district_id_2011", "place_type", "reason", "found_via",
     "preselected", "preselect_source", "confirmed", "pin_consulted", "located_lat", "located_lon", "located_match",
-    "summary_cut_off", "notes", "labeler", "labeled_at",
+    "summary_cut_off", "skip_reason", "notes", "labeler", "labeled_at",
 ]
 
 # words that describe a place rather than name it
@@ -254,6 +255,14 @@ def highlight(text, coded, shrug_names):
     return out
 
 
+def next_unlabeled():
+    """After saving: the first unlabeled incident in the sample's order."""
+    labeled = set(load_labels().incident_number)
+    todo = queue.index[~queue.incident_number.isin(labeled)]
+    st.session_state.pos = int(todo[0]) if len(todo) else len(queue) - 1
+    st.rerun()
+
+
 # ---------------------------------------------------------------- page
 
 sample = load_sample()
@@ -268,22 +277,19 @@ with st.sidebar:
     queue = sample[sample.split == split].sort_values("order", key=lambda s: s.astype(int)).reset_index(drop=True)
     n_done = queue.incident_number.isin(done).sum()
     st.progress(n_done / len(queue), text=f"{n_done} of {len(queue)} labeled")
+    # incidents come in the sample's random order: you can go back to earlier ones, but not past the first unlabeled one
+    todo = queue.index[~queue.incident_number.isin(done)]
+    frontier = int(todo[0]) if len(todo) else len(queue) - 1
     if "pos" not in st.session_state or st.session_state.get("pos_split") != split:
-        todo = queue.index[~queue.incident_number.isin(done)]
-        st.session_state.pos = int(todo[0]) if len(todo) else 0
+        st.session_state.pos = frontier
         st.session_state.pos_split = split
     c1, c2 = st.columns(2)
-    if c1.button("◀ Previous", use_container_width=True):
-        st.session_state.pos = max(0, st.session_state.pos - 1)
-    if c2.button("Next ▶", use_container_width=True):
-        st.session_state.pos = min(len(queue) - 1, st.session_state.pos + 1)
-    if st.button("Next unlabeled", use_container_width=True):
-        todo = queue.index[~queue.incident_number.isin(done) & (queue.index > st.session_state.pos)]
-        if len(todo):
-            st.session_state.pos = int(todo[0])
-    jump = st.number_input("Go to order #", 1, len(queue), st.session_state.pos + 1)
-    if st.button("Go", use_container_width=True):
-        st.session_state.pos = int(jump) - 1
+    if c1.button("◀ Previous", use_container_width=True, disabled=st.session_state.pos == 0):
+        st.session_state.pos -= 1
+    if c2.button("Next ▶", use_container_width=True, disabled=st.session_state.pos >= frontier):
+        st.session_state.pos += 1
+    if st.button("Back to the next unlabeled", use_container_width=True, disabled=st.session_state.pos == frontier):
+        st.session_state.pos = frontier
     with st.expander("Labeling protocol"):
         readme = (ROOT / "README.md").read_text()
         st.markdown(readme.split("## Labeling protocol", 1)[1].split("\n## ", 1)[0])
@@ -319,7 +325,10 @@ if key("choice") not in st.session_state:
 # header
 if existing is not None:
     saved_where = LEGACY.get(existing["precision"], existing["precision"])
-    status = f"✅ labeled: {saved_where}" + (f", {existing['place_name']}" if existing["place_name"] else "")
+    if saved_where == "skipped":
+        status = f"⏭ skipped: {existing['skip_reason']}"
+    else:
+        status = f"✅ labeled: {saved_where}" + (f", {existing['place_name']}" if existing["place_name"] else "")
 else:
     status = "not yet labeled"
 st.markdown(f"**{split} #{inc['order']}** · incident {iid} · {inc['date']} · {status}")
@@ -483,6 +492,8 @@ with right:
 
     st.subheader("Label")
     default = lambda col, fallback: existing[col] if existing is not None and existing[col] else fallback
+    if existing is not None and existing["precision"] == "skipped":
+        default = lambda col, fallback: existing[col] if col in ("notes",) and existing[col] else fallback
     precision = st.radio("Where did it happen?", PRECISIONS, key=key("precision"),
                          index=PRECISIONS.index(LEGACY.get(default("precision", ""), default("precision", PRECISIONS[0]))),
                          horizontal=True)
@@ -551,5 +562,24 @@ with right:
                 "located_match": loc[2] if loc and loc[0] is not None else "",
                 "summary_cut_off": str(cut_off), "notes": notes, "labeler": labeler, "labeled_at": datetime.now().isoformat(timespec="seconds"),
             })
-            st.session_state.pos = min(len(queue) - 1, st.session_state.pos + 1)
-            st.rerun()
+            next_unlabeled()
+
+    with st.expander("Skip this incident"):
+        st.caption("Only when it cannot be labeled. Skipped incidents stay in the sample and count in the denominator.")
+        skip_reason = st.selectbox("Why?", SKIP_REASONS, key=key("skip_reason"),
+                                   index=SKIP_REASONS.index(existing["skip_reason"]) if existing is not None
+                                   and existing["skip_reason"] in SKIP_REASONS else 0)
+        if st.button("Skip with this reason", use_container_width=True):
+            if not labeler:
+                st.error("Enter your initials in the sidebar first.")
+            elif not skip_reason:
+                st.error("Choose a reason.")
+            elif skip_reason.startswith("other") and not notes.strip():
+                st.error("Say why in the notes.")
+            else:
+                save_label({
+                    "incident_number": iid, "split": split, "order": inc["order"], "precision": "skipped",
+                    "state_id": inc["state_id"], "skip_reason": skip_reason, "notes": notes, "labeler": labeler,
+                    "labeled_at": datetime.now().isoformat(timespec="seconds"),
+                })
+                next_unlabeled()

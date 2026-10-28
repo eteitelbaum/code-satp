@@ -42,6 +42,8 @@ For each incident, record **where the event happened**, as precisely as the repo
 6. **Several plausible candidates within a few kilometers:** pick the one with the best evidence and record the alternative in the notes. Use the subdistrict only when you cannot place the event that closely.
 7. **The hand-entered pin:** decide without it first, and note whether it changed your answer.
 8. **Hard cases:** say what you were unsure about in the notes.
+9. **Order:** the app serves incidents in the sample's random order, so labels so far are a random subset. You can go back to earlier incidents, but not ahead.
+10. **Skipping:** only when an incident cannot be labeled (not a single incident, or the text does not describe the coded event), with the reason recorded. Skipped incidents count in the denominator.
 
 What to record:
 
