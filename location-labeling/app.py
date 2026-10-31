@@ -170,7 +170,10 @@ def apply_suggestion(o):
     else:
         st.session_state[key("precision")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
         st.session_state[key("choice")] = o.shrid2
-        st.session_state[key("type")] = "town" if re.search(r"(SHRUG|OpenStreetMap) (town|city)", o.evidence) else "village"
+        # town when the place, or the SHRUG place an OpenStreetMap point falls in, is a town
+        in_shrug = load_places().loc[lambda d: d.shrid2 == o.shrid2, "place_type"]
+        town = (in_shrug == "town").any() or re.search(r"(SHRUG|OpenStreetMap) (town|city)", o.evidence)
+        st.session_state[key("type")] = "town" if town else "village"
         if o.source == "OpenStreetMap":
             coords = f"{o.lat}, {o.lon}"
             st.session_state[key("coords")] = st.session_state[key("coords_done")] = coords
@@ -531,7 +534,9 @@ with left:
     if len(sug):
         st.subheader("Possible Subdistrict Options")
         # highlight the suggestion last chosen, while the label still matches it
-        current = st.session_state.get(key("precision"))
+        # the radio is drawn further down, so on returning to a label its saved value stands in
+        current = st.session_state.get(key("precision")) or (LEGACY.get(existing["precision"], existing["precision"])
+                                                             if existing is not None else None)
         implied = {"in": AT_PLACE[0], "near": AT_PLACE[1], "area": AREA, "subdistrict": "subdistrict"}
         for o in sug[sug["rank"] > 0].itertuples():
             on = (st.session_state.get(key("suggestion")) == o.rank and current == implied.get(o.relation)
