@@ -74,7 +74,7 @@ What to record:
 - **Named below the district:** yes or no (rule 12)
 - **Where it happened:** in or near a village or town, in a forest or area (a point), subdistrict, district, or state/unknown. This is the label's precision.
 - **Certainty:** sure, probable, or guess (rule 13)
-- **Place type:** what the place in the report is (village, town, police station, camp, forest, hill, river, road, other)
+- **Place type:** what the place in the report is (village, town, subdistrict, police station, camp, forest, hill, river, road, other); for a subdistrict label, the place the report names, such as the forest that cannot be placed
 - **Reason**, if coarser than a village or town: hamlet, local name, area only, camp, not found, other
 - **How you found it:** suggestion, shortlist, search, Google Maps, OpenStreetMap, SATP page, pin
 

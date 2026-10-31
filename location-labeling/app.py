@@ -44,7 +44,7 @@ AREA = PRECISIONS[2]  # a point inside a forest, sanctuary, or hill (protocol ru
 LEGACY = {"village or town": "in a village or town"}  # earlier label values
 NAMED = ["yes", "no"]  # does the report name a place below the district for where it happened? (#17)
 CERTAINTY = ["sure", "probable", "guess"]  # how sure the label is the right place, apart from its size (#17)
-PLACE_TYPES = ["village", "town", "police station", "camp", "forest", "hill", "river", "road", "other"]
+PLACE_TYPES = ["", "village", "town", "subdistrict", "police station", "camp", "forest", "hill", "river", "road", "other"]  # "" until chosen
 REASONS = ["", "hamlet", "local name", "area only", "camp", "not found", "other"]
 FOUND_VIA = ["suggestion", "shortlist", "search", "Google Maps", "OpenStreetMap", "SATP page", "pin"]
 SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
@@ -156,6 +156,7 @@ def apply_suggestion(o):
     if o.relation == "subdistrict":
         st.session_state[key("precision")] = "subdistrict"
         st.session_state[key("subdistrict")] = o.subdistrict_id
+        st.session_state[key("type")] = ""  # the report may name a forest, a police station, or the subdistrict itself
     elif o.relation == "area":  # a point inside a forest, sanctuary, or hill
         st.session_state[key("precision")] = AREA
         st.session_state[key("choice")] = ""
@@ -191,11 +192,32 @@ def first_index(k, options, value):
     return options.index(value) if value in options else None
 
 
+def pick_place(choice, rows, via):
+    """Select a SHRUG village or town from the shortlist or the search: in it (unless near was chosen), and its type."""
+    st.session_state[key("choice")] = choice
+    st.session_state[key("named")] = "yes"
+    if st.session_state.get(key("precision")) not in AT_PLACE:
+        st.session_state[key("precision")] = AT_PLACE[0]
+    st.session_state[key("type")] = "town" if (rows["place_type"] == "town").any() else "village"
+    st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {via}, key=FOUND_VIA.index)
+    st.rerun()
+
+
+def pick_subdistrict(subdistrict_id, district_id):
+    """Label a subdistrict found by the search, which may lie in another district."""
+    st.session_state[key("named")] = "yes"
+    st.session_state[key("precision")] = "subdistrict"
+    st.session_state[key("subdistrict")] = subdistrict_id
+    st.session_state[key("sub_district")] = district_id  # so the subdistrict list includes its district
+    st.session_state[key("type")] = ""
+    st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {"search"}, key=FOUND_VIA.index)
+    st.rerun()
+
+
 def pick_district():
     """Fill a district label: the coded district, with no place selected."""
     st.session_state[key("precision")] = "district"
     st.session_state[key("choice")] = ""
-    st.session_state.pop(key("search"), None)  # else the search box puts its place back
     if st.session_state.get(key("located_source")) == "OpenStreetMap":
         for k in ("coords_done", "located", "located_shrid", "located_source"):
             st.session_state.pop(key(k), None)
@@ -595,9 +617,7 @@ with left:
                     "" if coder_recorded(p["name"], names) else ", not recorded by the coders")
             label = f"{'● ' if is_on else ''}{p['label']} · {why}"
             if st.button(label, key=key(f"c_{p['shrid2']}"), type="primary" if is_on else "secondary"):
-                st.session_state[key("choice")] = p["shrid2"]
-                st.session_state[key("via_search")] = False
-                st.rerun()
+                pick_place(p["shrid2"], members(places, p["shrid2"]), "shortlist")
             if p["shrid2"].startswith("town:"):  # the town's subdistrict parts, indented under it
                 parts = members(places, p["shrid2"]).sort_values("subdistrict_name", na_position="last")
                 _, inner = st.columns([1, 12])
@@ -606,19 +626,7 @@ with left:
                     sub = part["subdistrict_name"].title() if isinstance(part["subdistrict_name"], str) else "unnamed subdistrict"
                     if inner.button(f"{'● ' if part_on else ''}↳ part in {sub}", key=key(f"c_{part['shrid2']}"),
                                     type="primary" if part_on else "secondary"):
-                        st.session_state[key("choice")] = part["shrid2"]
-                        st.rerun()
-
-    lookup = st.text_input("Look up a name", key=key("lookup"), placeholder="e.g. a village named on the SATP page",
-                           help="Lists the closest spellings among SHRUG villages and towns in the district. A close spelling "
-                                "may or may not be the same place: check on a map before choosing.")
-    if lookup.strip():
-        for _, p in shortlist(places, [lookup.strip()], n=8).iterrows():
-            is_on = st.session_state[key("choice")] == p["shrid2"]
-            if st.button(f"{'● ' if is_on else ''}{p['label']} · spelling match {p['score']:.2f}",
-                         key=key(f"l_{p['shrid2']}"), type="primary" if is_on else "secondary"):
-                st.session_state[key("choice")] = p["shrid2"]
-                st.rerun()
+                        pick_place(part["shrid2"], members(places, part["shrid2"]), "shortlist")
 
     widen = st.checkbox("Search other districts in this state too", key=key("widen"),
                         help="For events the coders placed in the wrong district, or places in a neighboring district")
@@ -627,15 +635,41 @@ with left:
     if (choice_now := st.session_state[key("choice")]) and not choice_now.startswith("town:"):
         pool = pd.concat([pool, all_places[all_places.shrid2 == choice_now]]).drop_duplicates("shrid2")
     whole_towns = {f"town:{n}": f"{n} (town) · whole town, {k} subdistrict parts" for n, k in groups.items()}
-    options = [""] + list(whole_towns) + pool["shrid2"].tolist()
     labels_by_shrid = dict(zip(pool["shrid2"], pool["label"] + ("" if not widen else ", " + pool["district_name"].str.title() + " district")))
     labels_by_shrid.update(whole_towns)
-    picked = st.selectbox("Search villages and towns" + (" in the state" if widen else " in the district"), options,
-                          key=key("search"), format_func=lambda s: labels_by_shrid.get(s, "type to search…"))
-    if picked and picked != st.session_state[key("choice")]:
-        st.session_state[key("choice")] = picked
-        st.session_state[key("via_search")] = True
-        st.rerun()
+    find = st.text_input("Find a place" + (" in the state" if widen else " in the district"), key=key("lookup"),
+                         placeholder="a village, town, or subdistrict; the spelling can be approximate",
+                         help="Lists SHRUG villages, towns, and subdistricts by spelling similarity (1.00 = same spelling), and "
+                              "names that begin with what you type. A close spelling may or may not be the same place: "
+                              "check on a map before choosing.")
+    if len(q := norm(find)) >= 2:
+        score = lambda n: spelling(q, norm(n))
+        # villages and towns: the closest spellings, and names that begin with what was typed
+        found = shortlist(pool, [find.strip()], n=8)
+        begins = pool[pool["key"].str.startswith(q)].head(8)
+        found = pd.concat([found, begins.assign(score=[max(score(n), 0.9) for n in begins["name"]])])
+        found = found.sort_values("score", ascending=False).drop_duplicates("shrid2").head(8)
+        results = [(r["score"], r["shrid2"], labels_by_shrid.get(r["shrid2"], r["label"])) for _, r in found.iterrows()]
+        results += [(score(t[5:]), t, lab) for t, lab in whole_towns.items() if score(t[5:]) >= 0.8]
+        subs_here = (all_places[all_places.state_id == inc["state_id"]] if widen else places).dropna(subset=["subdistrict_name"])
+        subs_here = subs_here.drop_duplicates("subdistrict_id")
+        for _, r in subs_here.iterrows():
+            sim = max(score(r["subdistrict_name"]), 0.9 if norm(r["subdistrict_name"]).startswith(q) else 0)
+            if sim >= 0.8:
+                results.append((sim, f"sub:{r['subdistrict_id']}", f"{r['subdistrict_name'].title()} (subdistrict) · "
+                                f"{r['district_name'].title()} district"))
+        precision_now = st.session_state.get(key("precision"))
+        # most similar first; a village and the subdistrict named after it, village first
+        for sim, pick, label in sorted(results, key=lambda r: (-r[0], r[1].startswith("sub:")))[:10]:
+            sub_id = pick[4:] if pick.startswith("sub:") else ""
+            is_on = (precision_now == "subdistrict" and st.session_state.get(key("subdistrict")) == sub_id) if sub_id else (
+                st.session_state[key("choice")] == pick)
+            if st.button(f"{'● ' if is_on else ''}{label} · spelling match {sim:.2f}", key=key(f"l_{pick}"),
+                         type="primary" if is_on else "secondary"):
+                if sub_id:
+                    pick_subdistrict(sub_id, subs_here.set_index("subdistrict_id").at[sub_id, "district_id"])
+                else:
+                    pick_place(pick, members(pool, pick), "search")
 
     saved_coords = f"{existing['located_lat']}, {existing['located_lon']}" if existing is not None and existing["located_lat"] else ""
     def clear_point(reset_box=True):
@@ -769,7 +803,9 @@ with right:
     elif precision == "subdistrict":
         # the coded district's subdistricts first, then the selected place's district if it differs
         coded_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == inc["district_id_2011"])]
-        subs = pd.concat([coded_district, in_district]).drop_duplicates("subdistrict_id")
+        searched = all_places[(all_places.state_id == inc["state_id"])
+                              & (all_places.district_id == st.session_state.get(key("sub_district")))]
+        subs = pd.concat([coded_district, in_district, searched]).drop_duplicates("subdistrict_id")
         subs = subs.assign(other=subs.district_id != inc["district_id_2011"]).sort_values(["other", "subdistrict_name"])
         sub_names = dict(zip(subs.subdistrict_id, subs.subdistrict_name.str.title()
                              + subs.other.map({True: " (", False: ""}) + subs.district_name.str.title().where(subs.other, "")
@@ -787,9 +823,11 @@ with right:
             district_id = sub_district[subdistrict_id]
             in_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == district_id)]
     # suggestions set these two, so they take their starting values from session state, not index or default
-    st.session_state.setdefault(key("type"), default("place_type", "village"))
+    st.session_state.setdefault(key("type"), default("place_type", ""))
     st.session_state.setdefault(key("via"), [v for v in default("found_via", "").split("|") if v])
-    place_type = st.selectbox("What kind of place is it?", PLACE_TYPES, key=key("type"))
+    place_type = st.selectbox("What kind of place is it?", PLACE_TYPES, key=key("type"), format_func=lambda t: t or "choose…",
+                              help="What the report names as the place: e.g. the forest, when you label the subdistrict "
+                                   "because the forest cannot be placed.")
     reason = st.selectbox("If not a village or town: why?", REASONS, key=key("reason"),
                           index=REASONS.index(default("reason", "")))
     found_via = st.multiselect("How did you find it?", FOUND_VIA, key=key("via"))
@@ -870,6 +908,8 @@ with right:
             st.error("Say where it happened.")
         elif named == "no" and precision not in ("district", "state or unknown"):
             st.error("Nothing named below the district: label the district (or the state).")
+        elif not place_type:
+            st.error("Say what kind of place the report names.")
         elif certainty is None:
             st.error("Say how sure you are that this is the right place.")
         elif certainty != "sure" and not notes.strip():
