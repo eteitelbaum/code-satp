@@ -42,12 +42,14 @@ PRECISIONS = ["in a village or town", "near a village or town", "in a forest or 
 AT_PLACE = PRECISIONS[:2]  # precisions that name a SHRUG place
 AREA = PRECISIONS[2]  # a point inside a forest, sanctuary, or hill (protocol rule 4); the unit comes from the point
 LEGACY = {"village or town": "in a village or town"}  # earlier label values
+NAMED = ["yes", "no"]  # does the report name a place below the district for where it happened? (#17)
+CERTAINTY = ["sure", "probable", "guess"]  # how sure the label is the right place, apart from its size (#17)
 PLACE_TYPES = ["village", "town", "police station", "camp", "forest", "hill", "river", "road", "other"]
 REASONS = ["", "hamlet", "local name", "area only", "camp", "not found", "other"]
 FOUND_VIA = ["suggestion", "shortlist", "search", "Google Maps", "OpenStreetMap", "SATP page", "pin"]
 SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
 LABEL_COLUMNS = [
-    "incident_number", "split", "order", "precision", "shrid2", "place_name", "subdistrict_id",
+    "incident_number", "split", "order", "named_below_district", "precision", "certainty", "shrid2", "place_name", "subdistrict_id",
     "subdistrict_name", "state_id", "district_id_2011", "place_type", "reason", "found_via",
     "preselected", "preselect_source", "confirmed", "pin_consulted", "located_lat", "located_lon", "located_match",
     "point_lat", "point_lon", "point_source", "unit_type", "unit_id", "unit_name", "suggestion_rank", "model_pick_rank",
@@ -709,6 +711,11 @@ with right:
     default = lambda col, fallback: existing[col] if existing is not None and existing[col] else fallback
     if existing is not None and existing["precision"] == "skipped":
         default = lambda col, fallback: existing[col] if col in ("notes",) and existing[col] else fallback
+    saved_named = default("named_below_district", "")
+    named = st.radio("Does the report name a place below the district for where it happened?", NAMED, key=key("named"),
+                     index=NAMED.index(saved_named) if saved_named in NAMED else None, horizontal=True,
+                     help="Any village, town, police station, camp, forest, hill, road, or subdistrict that locates the event, "
+                          "whether or not you can find it. Not where victims lived or where forces came from (rule 1).")
     precision = st.radio("Where did it happen?", PRECISIONS, key=key("precision"),
                          index=PRECISIONS.index(st.session_state.get(key("prec_pick")) or
                                                 LEGACY.get(default("precision", ""), default("precision", PRECISIONS[0]))),
@@ -749,6 +756,12 @@ with right:
     reason = st.selectbox("If not a village or town: why?", REASONS, key=key("reason"),
                           index=REASONS.index(default("reason", "")))
     found_via = st.multiselect("How did you find it?", FOUND_VIA, key=key("via"))
+    saved_certainty = default("certainty", "")
+    certainty = st.radio("How sure are you that this is the right place?", CERTAINTY, key=key("certainty"),
+                         index=CERTAINTY.index(saved_certainty) if saved_certainty in CERTAINTY else None, horizontal=True,
+                         help="Apart from how large the area is. Sure: one clear match. Probable: the best of several "
+                              "namesakes, a spelling stretch, or a reading of the text you had to infer. Guess: a plausible "
+                              "place on weak evidence. Say why in the notes unless sure.")
     cut_off = st.checkbox("Summary is cut off (labeled from the SATP page)", key=key("cut_off"),
                           value=default("summary_cut_off", "False") == "True")
     notes = st.text_input("Notes", key=key("notes"), value=default("notes", ""))
@@ -814,6 +827,14 @@ with right:
     if st.button("Save and go to next", type="primary", use_container_width=True):
         if not labeler:
             st.error("Enter your initials in the sidebar first.")
+        elif named is None:
+            st.error("Say whether the report names a place below the district.")
+        elif named == "no" and precision not in ("district", "state or unknown"):
+            st.error("Nothing named below the district: label the district (or the state).")
+        elif certainty is None:
+            st.error("Say how sure you are that this is the right place.")
+        elif certainty != "sure" and not notes.strip():
+            st.error("Say in the notes what you were unsure about.")
         elif precision in AT_PLACE and not choice:
             st.error("Pick a village or town, or choose a coarser unit.")
         elif precision == "subdistrict" and not subdistrict_id:
@@ -832,7 +853,8 @@ with right:
                 in_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == district_id)]
             sub_name = in_district.loc[in_district.subdistrict_id == subdistrict_id, "subdistrict_name"]
             save_label({
-                "incident_number": iid, "split": split, "order": inc["order"], "precision": precision,
+                "incident_number": iid, "split": split, "order": inc["order"], "named_below_district": named,
+                "precision": precision, "certainty": certainty,
                 "shrid2": "|".join(chosen["shrid2"]) if row is not None else "",  # several IDs for a whole split town
                 "place_name": row["name"] if row is not None else
                               (st.session_state.get(key("area_name")) or default("place_name", "")) if precision == AREA else "",

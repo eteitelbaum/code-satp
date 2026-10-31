@@ -64,10 +64,14 @@ For each incident, record **where the event happened**, as precisely as the repo
 9. **Hard cases:** say what you were unsure about in the notes.
 10. **Order:** the app serves incidents in the sample's random order, so labels so far are a random subset. You can go back to earlier incidents, but not ahead.
 11. **Skipping:** only when an incident cannot be labeled (not a single incident, or the text does not describe the coded event), with the reason recorded. Skipped incidents count in the denominator.
+12. **First decision: anything below the district?** Before choosing a place, say whether the report names any place below the district for where the event happened (a village, town, police station, camp, forest, hill, road, or subdistrict), whether or not you can find it. Places tied only to victims, suspects, or forces do not count (rule 1). If nothing is named, label the district (or the state). If something is named but cannot be placed, label the coarser unit and give the reason (#17).
+13. **Certainty**, separate from precision: how sure you are that the label is the right place, however large the area. **Sure:** one clear match. **Probable:** the best of several namesakes, a spelling stretch, or a reading of the text you had to infer. **Guess:** a plausible place on weak evidence. Unless sure, say why in the notes (#17).
 
 What to record:
 
-- **Where it happened:** in or near a village or town, in a forest or area (a point), subdistrict, district, or state/unknown
+- **Named below the district:** yes or no (rule 12)
+- **Where it happened:** in or near a village or town, in a forest or area (a point), subdistrict, district, or state/unknown. This is the label's precision.
+- **Certainty:** sure, probable, or guess (rule 13)
 - **Place type:** what the place in the report is (village, town, police station, camp, forest, hill, river, road, other)
 - **Reason**, if coarser than a village or town: hamlet, local name, area only, camp, not found, other
 - **How you found it:** suggestion, shortlist, search, Google Maps, OpenStreetMap, SATP page, pin
