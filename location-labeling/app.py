@@ -533,17 +533,14 @@ with left:
     shrug_in_text = in_text["name"].tolist()
     show = lambda t: st.markdown(f"<div style='font-size:1.1em;line-height:1.6'>{highlight(t, names, shrug_in_text)}</div>",
                                  unsafe_allow_html=True)
-    cut = not re.search(r"[.!?\"'”’)\]]$", inc["incident_summary"].strip())
-    if satp_texts:  # the full SATP entry first; the coders' summary below it
-        st.caption("Full SATP entry" + (" (several entries)" if len(satp_texts) > 1 else "") + ": may describe other incidents too")
-        for t in satp_texts:
-            show(t)
-        with st.expander("Coded summary (the text the coders worked with)" + (": may be cut off" if cut else "")):
-            show(inc["incident_summary"])
+    show(inc["incident_summary"])  # the coders' summary first; the full SATP entry below it
+    if not re.search(r"[.!?\"'”’)\]]$", inc["incident_summary"].strip()):
+        st.warning("This summary may be cut off (no final punctuation)" + (": see the full SATP entry." if satp_texts else "."))
+    if satp_texts:
+        with st.expander("Full SATP entry" + (" (several entries)" if len(satp_texts) > 1 else "") + ": may describe other incidents too"):
+            for t in satp_texts:
+                show(t)
     else:
-        show(inc["incident_summary"])
-        if cut:
-            st.warning("This summary may be cut off (no final punctuation).")
         st.caption("Not on SATP's current pages: the coded summary is the only text.")
     st.caption(f"Coded village: **{inc['village_name'] or '—'}** · other locations: **{inc['other_locations'] or '—'}**  "
                "· yellow = names the coders recorded · green = places in the text the coders did not record")
