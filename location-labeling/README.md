@@ -15,9 +15,14 @@ python location-labeling/satp_dates.py                # dates settled from SATP 
 python location-labeling/build_osm.py                 # OpenStreetMap's named places (download India from Geofabrik first; see the script)
 python location-labeling/suggest.py validation        # model suggestions for the app (#9; needs OPENAI_API_KEY in .env)
 streamlit run location-labeling/app.py                # labeling app
+
+# baselines (#22, #23); no API calls
+python location-labeling/gazetteer_coverage.py validation    # how often each gazetteer lists the coders' village
+python location-labeling/mordecai_baseline.py report validation    # Mordecai 3 (run step first, in its own environment; see the script)
+python location-labeling/compare_pipelines.py validation     # Mordecai, last year's T5, and ours on the same incidents
 ```
 
-`build_lookup.R` needs the SHRUG village polygons in `village-matching/data-large/` (not in the repository). Python packages are in `requirements.txt`.
+`build_lookup.R` needs the SHRUG village polygons in `village-matching/data-large/` (not in the repository). Python packages are in `requirements.txt`. `mordecai_baseline.py` needs Mordecai 3.5, its GeoNames index, and Elasticsearch, set up as its docstring says; `gazetteer_coverage.py` needs GeoNames' India file in `data/geonames/`; `compare_pipelines.py` needs last year's fine-tuned Flan-T5-large in `model-checkpoints/flan-t5-large/` at the repository root (not committed; from the Colab results folder `satp-results/location-extraction/flan-t5-large_finetuned_model`).
 
 | File | Contents |
 |---|---|
@@ -31,6 +36,9 @@ streamlit run location-labeling/app.py                # labeling app
 | `build_osm.py` | OpenStreetMap's named settlements, forests, protected areas, and hills in the study states, under every Latin-script name (plus short forms such as "Karlapat" for "Karlapat WLS"), each tied to the SHRUG village and subdistrict it falls in; writes `data/osm_places.parquet`, and the outlines of forests and protected areas to `data/osm_areas.parquet` |
 | `suggest.py` | Suggestions for the app: GPT-4o-mini lists the places in the text and their roles; each is matched by spelling to SHRUG villages, towns, and subdistricts (and to OpenStreetMap's places when SHRUG has nothing close); forests and hills that OpenStreetMap outlines also get points inside them (protocol rule 4); the top five options are ranked by spelling and context, lists with fewer than five are filled with the subdistricts their places lie in, and the model picks one (the app stars it). Model calls are cached in `data/suggest/`; each run's outputs are kept in `data/suggest/runs/`, and each label records the run it saw |
 | `app.py` | The labeling app; labels save to `labels/labels.csv` |
+| `gazetteer_coverage.py` | For each incident with a coded village, whether SHRUG, OpenStreetMap, and GeoNames list a place with that name inside the coded district (#22) |
+| `mordecai_baseline.py` | Mordecai 3.5 on the text `suggest.py` reads, as is or configured (generic words stripped, fuzzy search, more candidates), and how often it finds the coded village and places it in the coded district (#22); outputs in `data/mordecai/` |
+| `compare_pipelines.py` | Mordecai, last year's Flan-T5-large (its names through `suggest.py`'s candidate search), and our pipeline on the same incidents: names found, event village, placed in the coded district (#23); T5 outputs cached in `data/t5/`, per-incident results in `data/compare_<split>.csv` |
 
 Generated data (`data/`, including SATP's pages and text) and labels (`labels/`) are not committed.
 

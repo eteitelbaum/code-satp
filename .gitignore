@@ -24,3 +24,6 @@ venv/
 
 # Python bytecode
 __pycache__/
+
+# fine-tuned model weights
+model-checkpoints/
