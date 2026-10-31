@@ -484,6 +484,8 @@ if key("choice") not in st.session_state:
         if existing["located_lat"]:  # show the saved point without re-running the lookup
             st.session_state[key("coords_done")] = f"{existing['located_lat']}, {existing['located_lon']}"
             st.session_state[key("located")] = (float(existing["located_lat"]), float(existing["located_lon"]), existing["located_match"])
+        if str(existing["suggestion_rank"]).isdigit():  # highlight the option the label matched
+            st.session_state[key("suggestion")] = int(existing["suggestion_rank"])
     else:
         st.session_state[key("choice")] = pre_shrid
 
@@ -844,10 +846,12 @@ with right:
                 hit = precision == "subdistrict" and o.subdistrict_id == subdistrict_id
             elif o.relation == "area":
                 hit = precision == AREA and point and abs(point[0] - o.lat) < 1e-5 and abs(point[1] - o.lon) < 1e-5
+            # in or near the same place is a match; the label's precision records which
             elif o.source == "OpenStreetMap":
-                hit = precision in AT_PLACE and point_source == "OpenStreetMap" and point and abs(point[0] - o.lat) < 1e-5
-            else:
-                hit = precision in AT_PLACE and o.shrid2 in set(chosen["shrid2"])
+                hit = (precision in AT_PLACE and point_source == "OpenStreetMap" and point
+                       and abs(point[0] - o.lat) < 1e-5 and abs(point[1] - o.lon) < 1e-5)
+            else:  # a SHRUG place, unless the point came from an OpenStreetMap option inside it
+                hit = precision in AT_PLACE and o.shrid2 in set(chosen["shrid2"]) and point_source != "OpenStreetMap"
             if hit:
                 suggestion_rank = str(int(o.rank))
                 break

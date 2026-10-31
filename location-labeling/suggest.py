@@ -311,6 +311,7 @@ def candidates(inc, mentions, places, osm, areas):
     settlement_keys = osm_state_keys[settlements.index]
     settlement_district_keys = settlement_keys[settlements.district_id == inc["district_id_2011"]]
     village_names = state.set_index("shrid2")["name"]
+    village_types = state.set_index("shrid2")["place_type"]
     sub_names = state.drop_duplicates("subdistrict_id").set_index("subdistrict_id")["subdistrict_name"].str.title()
     natural = osm_state[osm_state.kind.isin(NATURAL)]
     natural_keys = osm_state_keys[natural.index]
@@ -512,7 +513,7 @@ def candidates(inc, mentions, places, osm, areas):
                             "why": said(m) + (f" {h['primary']} is the closest OpenStreetMap name." if sim < SURE else "") + facts(notes),
                             "source_note": f"OpenStreetMap {h['kind'].replace('_', ' ')}"
                                            + (f", listed as “{h['name']}”" if alias else "")
-                                           + (f", inside SHRUG village {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"]
+                                           + (f", inside SHRUG {village_types.get(h['shrid2'], 'village')} {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"]
                                               else ", outside every SHRUG village")
                                            + f", {similarity(sim)}" + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
         if obest:
