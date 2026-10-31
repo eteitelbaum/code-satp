@@ -716,10 +716,10 @@ with right:
                      index=NAMED.index(saved_named) if saved_named in NAMED else None, horizontal=True,
                      help="Any village, town, police station, camp, forest, hill, road, or subdistrict that locates the event, "
                           "whether or not you can find it. Not where victims lived or where forces came from (rule 1).")
+    # blank until a suggestion is clicked or a label is saved, so the labeler always chooses
+    start_where = st.session_state.get(key("prec_pick")) or LEGACY.get(default("precision", ""), default("precision", ""))
     precision = st.radio("Where did it happen?", PRECISIONS, key=key("precision"),
-                         index=PRECISIONS.index(st.session_state.get(key("prec_pick")) or
-                                                LEGACY.get(default("precision", ""), default("precision", PRECISIONS[0]))),
-                         horizontal=True)
+                         index=PRECISIONS.index(start_where) if start_where in PRECISIONS else None, horizontal=True)
     chosen = members(pool, choice) if choice else pool.iloc[0:0]
     subdistrict_id = chosen["subdistrict_id"].iloc[0] if chosen["subdistrict_id"].nunique() == 1 else ""
     # the district the label falls in: the selected place's, which can differ from the coded one
@@ -741,8 +741,8 @@ with right:
         options = [""] + subs.subdistrict_id.tolist()
         saved = existing["subdistrict_id"] if existing is not None and existing["precision"] == "subdistrict" else ""
         # default: the selected village's subdistrict, else one the coders named (e.g., "Thullur" mandal)
-        named = [i for i, n in sub_names.items() if isinstance(n, str) and norm(n) in {norm(x) for x in names}]
-        start = st.session_state.get(key("sub_pick")) or saved or subdistrict_id or (named[0] if named else "")
+        coder_subs = [i for i, n in sub_names.items() if isinstance(n, str) and norm(n) in {norm(x) for x in names}]
+        start = st.session_state.get(key("sub_pick")) or saved or subdistrict_id or (coder_subs[0] if coder_subs else "")
         subdistrict_id = st.selectbox("Subdistrict (defaults to the selected village's)", options, key=key("subdistrict"),
                                       index=options.index(start) if start in options else 0,
                                       format_func=lambda s: sub_names.get(s, "choose…"))
@@ -829,6 +829,8 @@ with right:
             st.error("Enter your initials in the sidebar first.")
         elif named is None:
             st.error("Say whether the report names a place below the district.")
+        elif precision is None:
+            st.error("Say where it happened.")
         elif named == "no" and precision not in ("district", "state or unknown"):
             st.error("Nothing named below the district: label the district (or the state).")
         elif certainty is None:
