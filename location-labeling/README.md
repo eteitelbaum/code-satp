@@ -46,17 +46,17 @@ Generated data (`data/`, including SATP's pages and text) and labels (`labels/`)
 
 ## Labeling protocol
 
-For each incident, record **where the event happened**, as precisely as the report allows: **in** a village or town, **near** a village or town, a point **in a forest or area** (rule 4), or, failing that, the subdistrict or district. Choose the most specific place the report supports before falling back to the subdistrict. The SATP coding manual covers state and district only; these rules are new for this answer set.
+For each incident, record **where the event happened**, as precisely as the report allows: **in** a village or town, **near** a village or town, **within police station limits** (rule 2), a point **in a forest or area** (rule 4), or, failing that, the subdistrict or district. Choose the most specific place the report supports before falling back to the subdistrict. The SATP coding manual covers state and district only; these rules are new for this answer set.
 
 1. **Label where the event happened**, not where victims lived, where forces came from, or where bodies were taken.
-2. **Events at police stations, camps, colonies, markets, neighborhoods:** **in** the village or town they sit in. For a town listed in several subdistrict parts, choose the part if you can tell, otherwise the whole town. "Under X Police Station (limits)" names the station's jurisdiction, not the place: use it to choose the subdistrict only when the report names nothing more specific (for forests, see rule 4).
+2. **Events at police stations, camps, colonies, markets, neighborhoods:** **in** the village or town they sit in. For a town listed in several subdistrict parts, choose the part if you can tell, otherwise the whole town. "Under X Police Station (limits)", when the report names nothing more specific, is **within police station limits** of the place the station is named after; the app sets the place type to "police station". An event at the station itself is **in** the village or town it sits in. For forests, see rule 4.
 3. **"Near X":** **near** X.
 4. **Forests, hills, sanctuaries:** take the first that applies.
    1. A village or town the report names in or near the forest, if you can find it: **in** or **near** it.
    2. The forest is mapped and the report names a jurisdiction (police station, mandal, block): a point inside the part of the forest within that jurisdiction's subdistrict (**in a forest or area**).
    3. The forest is named after a place you can find ("Karlapat forest"): **near** that place.
    4. The forest is mapped: a point in the middle of it (**in a forest or area**).
-   5. Otherwise: the subdistrict, or the district if that is all the report supports.
+   5. Otherwise: if the report names the police station limits the forest falls under, rule 2; else the subdistrict, or the district if that is all the report supports.
 
    "Mapped" means outlined on OpenStreetMap or Google Maps. Tree cover counts; legal status does not. A point in a forest usually falls outside every village, so its unit is the subdistrict (rule 6). When OpenStreetMap names the forest, the suggestions include these points and the map shows its outline; otherwise paste a point under **Locate by coordinates**.
 5. **Places SHRUG does not list:** find the spot on a map and paste its coordinates into **Locate by coordinates**, and choose the SHRUG place the report names, if any, as the place the event was in or near.
@@ -72,7 +72,7 @@ For each incident, record **where the event happened**, as precisely as the repo
 What to record:
 
 - **Named below the district:** yes or no (rule 12)
-- **Where it happened:** in or near a village or town, in a forest or area (a point), subdistrict, district, or state/unknown. This is the label's precision.
+- **Where it happened:** in or near a village or town, within police station limits, in a forest or area (a point), subdistrict, district, or state/unknown. This is the label's precision.
 - **Certainty:** sure, probable, or guess (rule 13)
 - **Place type:** what the place in the report is (village, town, subdistrict, police station, camp, forest, hill, river, road, other); for a subdistrict label, the place the report names, such as the forest that cannot be placed
 - **Reason**, if coarser than a village or town: hamlet, local name, area only, camp, not found, other

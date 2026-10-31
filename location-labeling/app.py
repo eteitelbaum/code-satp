@@ -38,9 +38,11 @@ LABELS_FILE = ROOT / "labels" / "labels.csv"
 LINKS_FILE = ROOT / "data" / "satp_links.csv"  # from link_satp.py
 ENTRIES_FILE = ROOT / "data" / "satp_entries.csv"  # from fetch_satp.py
 
-PRECISIONS = ["in a village or town", "near a village or town", "in a forest or area", "subdistrict", "district", "state or unknown"]
-AT_PLACE = PRECISIONS[:2]  # precisions that name a SHRUG place
-AREA = PRECISIONS[2]  # a point inside a forest, sanctuary, or hill (protocol rule 4); the unit comes from the point
+PS_LIMITS = "within police station limits"  # "under X Police Station limits": the place the station is named after (rule 2)
+PRECISIONS = ["in a village or town", "near a village or town", PS_LIMITS, "in a forest or area", "subdistrict", "district",
+              "state or unknown"]
+AT_PLACE = PRECISIONS[:3]  # precisions that name a SHRUG place
+AREA = PRECISIONS[3]  # a point inside a forest, sanctuary, or hill (protocol rule 4); the unit comes from the point
 LEGACY = {"village or town": "in a village or town"}  # earlier label values
 NAMED = ["yes", "no"]  # does the report name a place below the district for where it happened? (#17)
 CERTAINTY = ["sure", "probable", "guess"]  # how sure the label is the right place, apart from its size (#17)
@@ -169,12 +171,14 @@ def apply_suggestion(o):
         st.session_state[key("area_label")] = shown_as
         st.session_state[key("type")] = "hill" if re.search(r"OpenStreetMap (peak|hill|ridge)", o.evidence) else "forest"
     else:
-        st.session_state[key("precision")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
+        ps_limits = st.session_state.get(key("precision")) == PS_LIMITS  # keep it: the option gives the station's place
+        if not ps_limits:
+            st.session_state[key("precision")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
         st.session_state[key("choice")] = o.shrid2
         # town when the place, or the SHRUG place an OpenStreetMap point falls in, is a town
         in_shrug = load_places().loc[lambda d: d.shrid2 == o.shrid2, "place_type"]
         town = (in_shrug == "town").any() or re.search(r"(SHRUG|OpenStreetMap) (town|city)", o.evidence)
-        st.session_state[key("type")] = "town" if town else "village"
+        st.session_state[key("type")] = "police station" if ps_limits else "town" if town else "village"
         if o.source == "OpenStreetMap":
             coords = f"{o.lat}, {o.lon}"
             st.session_state[key("coords")] = st.session_state[key("coords_done")] = coords
@@ -198,7 +202,8 @@ def pick_place(choice, rows, via):
     st.session_state[key("named")] = "yes"
     if st.session_state.get(key("precision")) not in AT_PLACE:
         st.session_state[key("precision")] = AT_PLACE[0]
-    st.session_state[key("type")] = "town" if (rows["place_type"] == "town").any() else "village"
+    st.session_state[key("type")] = ("police station" if st.session_state[key("precision")] == PS_LIMITS
+                                     else "town" if (rows["place_type"] == "town").any() else "village")
     st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {via}, key=FOUND_VIA.index)
     st.rerun()
 
@@ -212,6 +217,13 @@ def pick_subdistrict(subdistrict_id, district_id):
     st.session_state[key("type")] = ""
     st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {"search"}, key=FOUND_VIA.index)
     st.rerun()
+
+
+def precision_changed():
+    """Within police station limits: the place type is the police station, and no reason is needed."""
+    if st.session_state.get(key("precision")) == PS_LIMITS:
+        st.session_state[key("type")] = "police station"
+        st.session_state[key("reason")] = ""
 
 
 def pick_district():
@@ -559,7 +571,8 @@ with left:
                                                              if existing is not None else None)
         implied = {"in": AT_PLACE[0], "near": AT_PLACE[1], "area": AREA, "subdistrict": "subdistrict"}
         for o in sug[sug["rank"] > 0].itertuples():
-            on = (st.session_state.get(key("suggestion")) == o.rank and current == implied.get(o.relation)
+            on = (st.session_state.get(key("suggestion")) == o.rank
+                  and (current == implied.get(o.relation) or (current == PS_LIMITS and o.relation in ("in", "near")))
                   and (o.relation in ("area", "subdistrict") or st.session_state[key("choice")] == o.shrid2))
             mark = " ★ model's pick" if o.model_pick else ""
             c_opt, c_g, c_o = st.columns([6, 1, 1], vertical_alignment="center")
@@ -788,7 +801,8 @@ with right:
     # blank until a suggestion is clicked or a label is saved, so the labeler always chooses
     saved_where = LEGACY.get(default("precision", ""), default("precision", ""))
     precision = st.radio("Where did it happen?", PRECISIONS, key=key("precision"),
-                         index=first_index(key("precision"), PRECISIONS, saved_where), horizontal=True)
+                         index=first_index(key("precision"), PRECISIONS, saved_where), horizontal=True,
+                         on_change=precision_changed)
     chosen = members(pool, choice) if choice else pool.iloc[0:0]
     subdistrict_id = chosen["subdistrict_id"].iloc[0] if chosen["subdistrict_id"].nunique() == 1 else ""
     # the district the label falls in: the selected place's, which can differ from the coded one
@@ -827,7 +841,7 @@ with right:
                               help="What the report names as the place: e.g. the forest, when you label the subdistrict "
                                    "because the forest cannot be placed.")
     reason = st.selectbox("If not a village or town: why?", REASONS, key=key("reason"),
-                          index=REASONS.index(default("reason", "")))
+                          index=first_index(key("reason"), REASONS, default("reason", "")) or 0)
     found_via = st.multiselect("How did you find it?", FOUND_VIA, key=key("via"))
     saved_certainty = default("certainty", "")
     certainty = st.radio("How sure are you that this is the right place?", CERTAINTY, key=key("certainty"),
