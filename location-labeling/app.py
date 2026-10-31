@@ -147,18 +147,16 @@ def google_maps(name):
 def apply_suggestion(o):
     """Fill the label from a suggestion: the place (or OpenStreetMap point), in or near, or the subdistrict."""
     st.session_state[key("suggestion")] = int(o.rank)
-    st.session_state.pop(key("precision"), None)  # the radio takes its value from prec_pick on the next run
     st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {"suggestion"}, key=FOUND_VIA.index)
     if o.source != "OpenStreetMap" and st.session_state.get(key("located_source")) == "OpenStreetMap":
         for k in ("coords_done", "located", "located_shrid", "located_source"):  # a point set by an earlier suggestion
             st.session_state.pop(key(k), None)
         st.session_state[key("coords")] = ""
     if o.relation == "subdistrict":
-        st.session_state[key("prec_pick")] = "subdistrict"
-        st.session_state[key("sub_pick")] = o.subdistrict_id
-        st.session_state.pop(key("subdistrict"), None)
+        st.session_state[key("precision")] = "subdistrict"
+        st.session_state[key("subdistrict")] = o.subdistrict_id
     elif o.relation == "area":  # a point inside a forest, sanctuary, or hill
-        st.session_state[key("prec_pick")] = AREA
+        st.session_state[key("precision")] = AREA
         st.session_state[key("choice")] = ""
         st.session_state[key("coords")] = st.session_state[key("coords_done")] = f"{o.lat}, {o.lon}"
         shown_as = o.label or f"A point in {o.name}"
@@ -169,7 +167,7 @@ def apply_suggestion(o):
         st.session_state[key("area_label")] = shown_as
         st.session_state[key("type")] = "hill" if re.search(r"OpenStreetMap (peak|hill|ridge)", o.evidence) else "forest"
     else:
-        st.session_state[key("prec_pick")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
+        st.session_state[key("precision")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
         st.session_state[key("choice")] = o.shrid2
         st.session_state[key("type")] = "town" if re.search(r"(SHRUG|OpenStreetMap) (town|city)", o.evidence) else "village"
         if o.source == "OpenStreetMap":
@@ -181,10 +179,17 @@ def apply_suggestion(o):
     st.rerun()
 
 
+def first_index(k, options, value):
+    """A widget's starting index: the saved value on first showing; after that the widget's own state, which
+    suggestions set directly (so the browser shows it), takes over."""
+    if k in st.session_state:
+        return None
+    return options.index(value) if value in options else None
+
+
 def pick_district():
     """Fill a district label: the coded district, with no place selected."""
-    st.session_state.pop(key("precision"), None)
-    st.session_state[key("prec_pick")] = "district"
+    st.session_state[key("precision")] = "district"
     st.session_state[key("choice")] = ""
     st.session_state.pop(key("search"), None)  # else the search box puts its place back
     if st.session_state.get(key("located_source")) == "OpenStreetMap":
@@ -198,8 +203,7 @@ def named_changed():
     """Nothing named below the district: fill the label with the coded district, sure (the labeler can change either)."""
     if st.session_state.get(key("named")) == "no":
         pick_district()
-        st.session_state.pop(key("certainty"), None)
-        st.session_state[key("cert_pick")] = "sure"
+        st.session_state[key("certainty")] = "sure"
 
 
 def load_labels():
@@ -524,7 +528,7 @@ with left:
     if len(sug):
         st.subheader("Possible Subdistrict Options")
         # highlight the suggestion last chosen, while the label still matches it
-        current = st.session_state.get(key("precision")) or st.session_state.get(key("prec_pick"))
+        current = st.session_state.get(key("precision"))
         implied = {"in": AT_PLACE[0], "near": AT_PLACE[1], "area": AREA, "subdistrict": "subdistrict"}
         for o in sug[sug["rank"] > 0].itertuples():
             on = (st.session_state.get(key("suggestion")) == o.rank and current == implied.get(o.relation)
@@ -742,9 +746,9 @@ with right:
                      help="Any village, town, police station, camp, forest, hill, road, or subdistrict that locates the event, "
                           "whether or not you can find it. Not where victims lived or where forces came from (rule 1).")
     # blank until a suggestion is clicked or a label is saved, so the labeler always chooses
-    start_where = st.session_state.get(key("prec_pick")) or LEGACY.get(default("precision", ""), default("precision", ""))
+    saved_where = LEGACY.get(default("precision", ""), default("precision", ""))
     precision = st.radio("Where did it happen?", PRECISIONS, key=key("precision"),
-                         index=PRECISIONS.index(start_where) if start_where in PRECISIONS else None, horizontal=True)
+                         index=first_index(key("precision"), PRECISIONS, saved_where), horizontal=True)
     chosen = members(pool, choice) if choice else pool.iloc[0:0]
     subdistrict_id = chosen["subdistrict_id"].iloc[0] if chosen["subdistrict_id"].nunique() == 1 else ""
     # the district the label falls in: the selected place's, which can differ from the coded one
@@ -767,9 +771,9 @@ with right:
         saved = existing["subdistrict_id"] if existing is not None and existing["precision"] == "subdistrict" else ""
         # default: the selected village's subdistrict, else one the coders named (e.g., "Thullur" mandal)
         coder_subs = [i for i, n in sub_names.items() if isinstance(n, str) and norm(n) in {norm(x) for x in names}]
-        start = st.session_state.get(key("sub_pick")) or saved or subdistrict_id or (coder_subs[0] if coder_subs else "")
+        start = saved or subdistrict_id or (coder_subs[0] if coder_subs else "")
         subdistrict_id = st.selectbox("Subdistrict (defaults to the selected village's)", options, key=key("subdistrict"),
-                                      index=options.index(start) if start in options else 0,
+                                      index=first_index(key("subdistrict"), options, start) or 0,
                                       format_func=lambda s: sub_names.get(s, "choose…"))
         if subdistrict_id:  # the label's district follows the chosen subdistrict
             district_id = sub_district[subdistrict_id]
@@ -781,14 +785,12 @@ with right:
     reason = st.selectbox("If not a village or town: why?", REASONS, key=key("reason"),
                           index=REASONS.index(default("reason", "")))
     found_via = st.multiselect("How did you find it?", FOUND_VIA, key=key("via"))
-    saved_certainty = st.session_state.get(key("cert_pick")) or default("certainty", "")
+    saved_certainty = default("certainty", "")
     certainty = st.radio("How sure are you that this is the right place?", CERTAINTY, key=key("certainty"),
-                         index=CERTAINTY.index(saved_certainty) if saved_certainty in CERTAINTY else None, horizontal=True,
+                         index=first_index(key("certainty"), CERTAINTY, saved_certainty), horizontal=True,
                          help="Apart from how large the area is. Sure: one clear match. Probable: the best of several "
                               "namesakes, a spelling stretch, or a reading of the text you had to infer. Guess: a plausible "
                               "place on weak evidence. Say why in the notes unless sure.")
-    cut_off = st.checkbox("Summary is cut off (labeled from the SATP page)", key=key("cut_off"),
-                          value=default("summary_cut_off", "False") == "True")
     notes = st.text_input("Notes", key=key("notes"), value=default("notes", ""))
 
     # point for mapping and unit for analysis (protocol rule 6)
@@ -899,7 +901,7 @@ with right:
                 "point_source": point_source, "unit_type": unit_type, "unit_id": unit_id, "unit_name": unit_name,
                 "suggestion_rank": suggestion_rank, "model_pick_rank": model_pick_rank,
                 "suggestion_run": sug["run"].iloc[0] if len(sug) and "run" in sug else "",  # which suggest.py run was shown
-                "summary_cut_off": str(cut_off), "notes": notes, "labeler": labeler, "labeled_at": datetime.now().isoformat(timespec="seconds"),
+                "notes": notes, "labeler": labeler, "labeled_at": datetime.now().isoformat(timespec="seconds"),
             })
             next_unlabeled()
 

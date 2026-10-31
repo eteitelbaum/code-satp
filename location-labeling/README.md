@@ -77,7 +77,6 @@ What to record:
 - **Place type:** what the place in the report is (village, town, police station, camp, forest, hill, river, road, other)
 - **Reason**, if coarser than a village or town: hamlet, local name, area only, camp, not found, other
 - **How you found it:** suggestion, shortlist, search, Google Maps, OpenStreetMap, SATP page, pin
-- **Summary cut off:** check this if the coded summary is truncated and you labeled from the SATP source page
 
 ## Sources
 
