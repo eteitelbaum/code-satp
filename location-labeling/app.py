@@ -181,6 +181,27 @@ def apply_suggestion(o):
     st.rerun()
 
 
+def pick_district():
+    """Fill a district label: the coded district, with no place selected."""
+    st.session_state.pop(key("precision"), None)
+    st.session_state[key("prec_pick")] = "district"
+    st.session_state[key("choice")] = ""
+    st.session_state.pop(key("search"), None)  # else the search box puts its place back
+    if st.session_state.get(key("located_source")) == "OpenStreetMap":
+        for k in ("coords_done", "located", "located_shrid", "located_source"):
+            st.session_state.pop(key(k), None)
+        st.session_state[key("coords")] = ""
+    st.session_state[key("type")] = "other"
+
+
+def named_changed():
+    """Nothing named below the district: fill the label with the coded district, sure (the labeler can change either)."""
+    if st.session_state.get(key("named")) == "no":
+        pick_district()
+        st.session_state.pop(key("certainty"), None)
+        st.session_state[key("cert_pick")] = "sure"
+
+
 def load_labels():
     if LABELS_FILE.exists():
         # reindex so files saved before a column was added still load
@@ -495,12 +516,12 @@ with left:
     st.markdown(f"[SATP page]({satp_page or inc['satp_url']}) · [Google Maps](https://www.google.com/maps/search/{gq})")
 
     sug = suggestions[suggestions.incident_number == iid]
+    current = st.session_state.get(key("precision")) or st.session_state.get(key("prec_pick"))
     if not len(sug) and len(suggestions):
         st.caption("No suggestions for this incident: suggest.py has not reached it, or it failed (see the sidebar).")
     if len(sug):
         st.subheader("Suggestions")
         # highlight the suggestion last chosen, while the label still matches it
-        current = st.session_state.get(key("precision")) or st.session_state.get(key("prec_pick"))
         implied = {"in": AT_PLACE[0], "near": AT_PLACE[1], "area": AREA, "subdistrict": "subdistrict"}
         for o in sug[sug["rank"] > 0].itertuples():
             on = (st.session_state.get(key("suggestion")) == o.rank and current == implied.get(o.relation)
@@ -516,6 +537,13 @@ with left:
             st.caption(f"**Why:** {o.why}  \n**Source:** {o.source_note}" if o.why else o.evidence)
         if sug[sug.model_pick]["rank"].eq(0).any():
             st.caption("The model picked none of these.")
+    # the coded district is always an option: incidents are filed by district, so it is the fallback
+    if inc["district_id_2011"]:
+        on = current == "district"
+        if st.button(f"{'● ' if on else ''}District: {inc['district']} (the coded district)", key=key("s_district"),
+                     type="primary" if on else "secondary", use_container_width=True):
+            pick_district()
+            st.rerun()
     # places the text puts the event in or near that the search did not find closely (SHRUG spelling below 0.92,
     # nothing in OpenStreetMap); district and state names are never searched, and a matched subdistrict is found
     weak = mentions[(mentions.incident_number == iid)
@@ -713,7 +741,7 @@ with right:
         default = lambda col, fallback: existing[col] if col in ("notes",) and existing[col] else fallback
     saved_named = default("named_below_district", "")
     named = st.radio("Does the report name a place below the district for where it happened?", NAMED, key=key("named"),
-                     index=NAMED.index(saved_named) if saved_named in NAMED else None, horizontal=True,
+                     index=NAMED.index(saved_named) if saved_named in NAMED else None, horizontal=True, on_change=named_changed,
                      help="Any village, town, police station, camp, forest, hill, road, or subdistrict that locates the event, "
                           "whether or not you can find it. Not where victims lived or where forces came from (rule 1).")
     # blank until a suggestion is clicked or a label is saved, so the labeler always chooses
@@ -756,7 +784,7 @@ with right:
     reason = st.selectbox("If not a village or town: why?", REASONS, key=key("reason"),
                           index=REASONS.index(default("reason", "")))
     found_via = st.multiselect("How did you find it?", FOUND_VIA, key=key("via"))
-    saved_certainty = default("certainty", "")
+    saved_certainty = st.session_state.get(key("cert_pick")) or default("certainty", "")
     certainty = st.radio("How sure are you that this is the right place?", CERTAINTY, key=key("certainty"),
                          index=CERTAINTY.index(saved_certainty) if saved_certainty in CERTAINTY else None, horizontal=True,
                          help="Apart from how large the area is. Sure: one clear match. Probable: the best of several "
