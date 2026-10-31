@@ -534,9 +534,10 @@ with left:
     show = lambda t: st.markdown(f"<div style='font-size:1.1em;line-height:1.6'>{highlight(t, names, shrug_in_text)}</div>",
                                  unsafe_allow_html=True)
     show(inc["incident_summary"])  # the coders' summary first; the full SATP entry below it
-    if not re.search(r"[.!?\"'”’)\]]$", inc["incident_summary"].strip()):
-        st.warning("This summary may be cut off (no final punctuation)" + (": see the full SATP entry." if satp_texts else "."))
     if satp_texts:
+        n_summary, n_full = len(inc["incident_summary"].split()), sum(len(t.split()) for t in satp_texts)
+        if n_full > n_summary:
+            st.info(f"The coded summary ({n_summary} words) is shorter than the full SATP entry ({n_full} words), below.")
         with st.expander("Full SATP entry" + (" (several entries)" if len(satp_texts) > 1 else "") + ": may describe other incidents too"):
             for t in satp_texts:
                 show(t)
