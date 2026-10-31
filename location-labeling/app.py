@@ -148,6 +148,7 @@ def apply_suggestion(o):
     """Fill the label from a suggestion: the place (or OpenStreetMap point), in or near, or the subdistrict."""
     st.session_state[key("suggestion")] = int(o.rank)
     st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {"suggestion"}, key=FOUND_VIA.index)
+    st.session_state[key("named")] = "yes"  # every option is a place below the district
     if o.source != "OpenStreetMap" and st.session_state.get(key("located_source")) == "OpenStreetMap":
         for k in ("coords_done", "located", "located_shrid", "located_source"):  # a point set by an earlier suggestion
             st.session_state.pop(key(k), None)
@@ -742,7 +743,7 @@ with right:
     saved_named = default("named_below_district", "")
     named = st.radio(f"Does the report name a place below the district for where it happened ({inc['district']} district)?",
                      NAMED, key=key("named"),
-                     index=NAMED.index(saved_named) if saved_named in NAMED else None, horizontal=True, on_change=named_changed,
+                     index=first_index(key("named"), NAMED, saved_named), horizontal=True, on_change=named_changed,
                      help="Any village, town, police station, camp, forest, hill, road, or subdistrict that locates the event, "
                           "whether or not you can find it. Not where victims lived or where forces came from (rule 1).")
     # blank until a suggestion is clicked or a label is saved, so the labeler always chooses
