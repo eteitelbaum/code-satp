@@ -3,9 +3,10 @@
 suggest.py matches place names against this table with the same spelling measure it uses
 for SHRUG, so "Nishanguda" can find "Nisanguda" (OpenStreetMap's own search matches whole
 words only). Keeps settlements (city, town, village, hamlet, locality, ...), forests,
-protected areas (sanctuaries, national parks, reserves), hills, peaks, ridges, and valleys,
-under every Latin-script name they carry (name, name:en, alt_name, old_name, ...), plus a
-short form of forest and sanctuary names ("Karlapat WLS" -> "Karlapat"). Each is tied to
+protected areas (sanctuaries, national parks, reserves), hills, peaks, ridges, valleys,
+police stations, and railway stations and halts, under every Latin-script name they carry
+(name, name:en, alt_name, old_name, ...), plus a short form of forest, sanctuary, and station
+names ("Karlapat WLS" -> "Karlapat", "Gomia Police Station" -> "Gomia"). Each is tied to
 the SHRUG village and subdistrict it falls in. Outlines of forests and protected areas are
 kept too, for protocol rule 4 (a point in the part of a forest within a jurisdiction).
 
@@ -36,10 +37,14 @@ AREAS = DATA / "osm_areas.parquet"
 PLACES = {"city", "town", "village", "hamlet", "isolated_dwelling", "locality", "neighbourhood", "suburb", "quarter", "farm"}
 NATURAL = {"wood": "forest", "peak": "peak", "hill": "hill", "ridge": "ridge", "valley": "valley"}
 AREA_KINDS = {"forest", "protected area"}  # kinds whose outlines are kept
+STATION_KINDS = {"police station", "railway station"}  # landmarks reports place events by
 # words that describe a forest or hill rather than name it
 GENERIC = re.compile(r"\b(wildlife sanctuary|sanctuary|wls|reserved? forests?|protected forests?|rf|pf|forests?|"
                      r"national park|tiger reserve|elephant reserve|reserve|hill range|range|hills?|jungle|woods?)\b",
                      re.IGNORECASE)
+# words that describe a station rather than name it ("Gomia Police Station" is also found as "Gomia")
+STATION_GENERIC = re.compile(r"\b(police stations?|police outposts?|police posts?|police|thana|p\.?s|outposts?|op|"
+                             r"railway stations?|railway|stations?|halt|junction|jn)\b\.?", re.IGNORECASE)
 NAME_KEYS = ["name", "name:en", "alt_name", "alt_name:en", "old_name", "official_name", "loc_name", "short_name"]
 
 
@@ -52,6 +57,10 @@ def kind(tags):
         return "forest"
     if tags.get("leisure") == "nature_reserve" or tags.get("boundary") in ("protected_area", "national_park"):
         return "protected area"
+    if tags.get("amenity") == "police":
+        return "police station"
+    if tags.get("railway") in ("station", "halt"):
+        return "railway station"
     return None
 
 
@@ -67,6 +76,11 @@ def names(tags, k):
             short = re.sub(r"\s+", " ", GENERIC.sub(" ", n)).strip(" .,-")
             if len(re.sub(r"[^a-z]", "", short.lower())) >= 3 and short not in out:
                 out.append(short)
+    if k in STATION_KINDS:
+        for n in list(out):
+            short = re.sub(r"\s+", " ", STATION_GENERIC.sub(" ", n)).strip(" .,-()")
+            if len(re.sub(r"[^a-z]", "", short.lower())) >= 3 and short not in out:
+                out.append(short)
     return out
 
 
@@ -74,7 +88,7 @@ def main():
     wkb = osmium.geom.WKBFactory()
     rows, outlines = [], []
     fp = (osmium.FileProcessor(str(PBF)).with_locations().with_areas()
-          .with_filter(osmium.filter.KeyFilter("place", "natural", "landuse", "boundary", "leisure")))
+          .with_filter(osmium.filter.KeyFilter("place", "natural", "landuse", "boundary", "leisure", "amenity", "railway")))
     for obj in fp:
         k = kind(obj.tags)
         if not k:

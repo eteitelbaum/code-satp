@@ -12,7 +12,7 @@ For each incident in a split:
    each tied to the village or subdistrict it falls in. Options are ranked by spelling and context
    (the place's role, whether it lies in a named subdistrict, distance to a named police
    station); the weights are a first guess, to be tuned on the validation labels.
-3. Selection: GPT-4o-mini sees the text and the top five options and picks one (or none),
+3. Selection: GPT-4o-mini sees the text and the top eight options and picks one (or none),
    with a one-sentence reason.
 
 Model calls are cached in location-labeling/data/suggest/, so a rerun only does new work,
@@ -43,6 +43,7 @@ import sys
 import threading
 import time
 import unicodedata
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -61,9 +62,15 @@ ROOT = Path(__file__).parent
 DATA = ROOT / "data"
 CACHE = DATA / "suggest"
 MODEL = "gpt-4o-mini"
-TOP = 5
+TOP = 8
 MATCH = 0.80  # spelling similarity for a SHRUG candidate
 SURE = 0.92  # a SHRUG match this close needs no OpenStreetMap match
+LOOSE = 3  # a name with no match at MATCH or above gets its closest spellings instead, for the selection model to judge
+FLOOR = 0.65  # ... down to this similarity
+LOOSE_PENALTY = 0.3  # ranks them after the matches that pass MATCH
+WORD_PENALTY = 0.15  # "Dumri" for "Dumri Vihar": ranked below a close match to the whole name
+PENALTY = {"name": 0.0, "word": WORD_PENALTY, "loose": LOOSE_PENALTY}  # by how a place matched the name in the text
+DESCRIPTOR_MIN, DESCRIPTOR_ALONE = 50, 0.3  # a word in this many multi-word names, found alone less than this share as often
 OSM_KINDS = {"village", "town", "hamlet", "locality", "police station", "gram panchayat", "camp", "other", "forest", "hill"}  # mention kinds matched to OpenStreetMap
 FOREST_KINDS = {"forest", "hill", "other"}  # mention kinds matched to mapped forests and hills (protocol rule 4); "other" catches parks
 NATURAL = {"forest", "protected area", "hill", "peak", "ridge", "valley"}  # OpenStreetMap kinds they match
@@ -122,13 +129,41 @@ QUALIFIERS = {"bade", "bada", "badi", "bara", "bari", "chhota", "chota", "chhoti
               "pinna", "peda", "pedda", "chinna", "buzurg", "bujurg", "uparla", "nichla", "upper", "lower", "purana", "naya",
               "alias", "tola", "toli", "para", "pada", "basti", "colony"}
 PART = 0.96  # similarity given to a name found as a whole word inside a longer one: close, but not the same name
+WORDS = re.compile(r"[\s\-()/,]+")
+DESCRIPTORS = set(QUALIFIERS)  # with the words descriptors() finds, once candidates() has seen the names
+
+
+def descriptors(places, osm):
+    """Words that describe a place rather than name it, read from the names: in at least DESCRIPTOR_MIN multi-word
+    SHRUG and OpenStreetMap names, and found as a whole name less than DESCRIPTOR_ALONE times as often ("Nagar",
+    "Vihar", "Khera"; not "Dumri" or "Rampur"); plus QUALIFIERS, some too rare to count."""
+    names = pd.concat([places["name"], osm["primary"]]).dropna().astype(str)
+    alone, multi = Counter(names.map(norm)), Counter()
+    for n in names:
+        words = {norm(w) for w in WORDS.split(n) if len(norm(w)) >= 3}
+        if len(words) > 1:
+            multi.update(words)
+    return {w for w, k in multi.items() if k >= DESCRIPTOR_MIN and alone[w] < DESCRIPTOR_ALONE * k} | QUALIFIERS
+
+
+def load_descriptors(places, osm):
+    """Fill DESCRIPTORS from the names, once."""
+    with LOCK:
+        if DESCRIPTORS == QUALIFIERS:
+            DESCRIPTORS.update(descriptors(places, osm))
 
 
 def name_parts(names):
     """The words of multi-word names as extra keys, indexed like the names ("Bade Bacheli" -> "bacheli")."""
-    parts = [(i, norm(w)) for i, n in names.items() for w in re.split(r"[\s\-()/,]+", str(n))
-             if len(re.split(r"\s+", str(n).strip())) > 1 and len(norm(w)) >= 4 and norm(w) not in QUALIFIERS]
+    parts = [(i, norm(w)) for i, n in names.items() for w in WORDS.split(str(n))
+             if len(re.split(r"\s+", str(n).strip())) > 1 and len(norm(w)) >= 4 and norm(w) not in DESCRIPTORS]
     return pd.Series([w for _, w in parts], index=[i for i, _ in parts], dtype=str)
+
+
+def query_words(name):
+    """The words of a multi-word name in the text that could name a place by themselves ("Dumri Vihar" -> ["Dumri"])."""
+    words = [w for w in WORDS.split(name) if w]
+    return [w for w in words if len(norm(w)) >= 4 and norm(w) not in DESCRIPTORS] if len(words) > 1 else []
 
 
 def fuzzy(names, keys, limit, parts=None):
@@ -272,6 +307,22 @@ def spelled(sim, query):
     return f": a different spelling, may not be {query}"
 
 
+def how_matched(sim, how, word, query):
+    """For an option, by how it matched the name in the text (see ranked()): the spelling clause of its evidence,
+    its label's suffix, and a sentence for why."""
+    if how == "word":
+        return (f"spelling {sim:.2f} to “{word}”, a word of “{query}”", f" (from “{query}” in the text)",
+                f" “{query}” in the text contains the name {word}.")
+    return f"spelling {sim:.2f} to “{query}”" + (", one of its closest spellings" if how == "loose" else ""), spelled(sim, query), ""
+
+
+def closest(name, sim, how, source):
+    """The sentence for why, when the spelling is not close."""
+    if how == "loose":
+        return f" {name} is one of the closest {source} names."
+    return f" {name} is the closest {source} name." if sim < SURE else ""
+
+
 def similarity(sim):
     return "same spelling" if sim >= 0.995 else f"spelling similarity {sim:.2f}"
 
@@ -308,6 +359,7 @@ class Areas:
 
 def candidates(inc, mentions, places, osm, areas):
     """Options for one incident, best first, and the mentions with what each matched."""
+    load_descriptors(places, osm)
     district = places[(places.state_id == inc["state_id"]) & (places.district_id == inc["district_id_2011"])]
     if district.empty:
         return [], mentions
@@ -330,6 +382,12 @@ def candidates(inc, mentions, places, osm, areas):
     natural = osm_state[osm_state.kind.isin(NATURAL)]
     natural_keys = osm_state_keys[natural.index]
     natural_district_keys = natural_keys[natural.district_id == inc["district_id_2011"]]
+    police = settlements[(settlements.kind == "police station") & (settlements.district_id == inc["district_id_2011"])]
+    police_keys = settlement_keys[police.index]
+
+    def osm_police(name):
+        """OpenStreetMap police stations in the district with the station's name ("Gomia Police Station" for "Gomia")."""
+        return {i: sim for i, sim in fuzzy(query_names(name), police_keys, 3).items() if sim >= SURE}
 
     # context: subdistricts named in the text, named police stations' locations, and the subdistricts
     # of the jurisdictions the text names ("under X Police Station", "X mandal")
@@ -353,6 +411,7 @@ def candidates(inc, mentions, places, osm, areas):
             exact = district[keys == norm(m["name"])]
             if len(exact):
                 stations.append((exact.iloc[0]["lat"], exact.iloc[0]["lon"]))
+            stations += [(osm.loc[i, "lat"], osm.loc[i, "lon"]) for i in osm_police(m["name"])]
 
     def context(district_id, subdistrict_id, lat, lon):
         """Score adjustment and notes for where a matched place lies."""
@@ -376,6 +435,28 @@ def candidates(inc, mentions, places, osm, areas):
             hits.update({i: sim for i, sim in fuzzy(names, state_keys, 5, state_parts).items()
                          if sim >= SURE and i not in district_keys.index})
         return hits
+
+    def ranked(names, words, district_keys, state_keys, district_parts=None, state_parts=None):
+        """A name's matches, {index: (similarity, how, word)}: the whole name's within NEAR_SPELLING of its best ("name");
+        places named by one word of it, if the word matches closely ("word": Dumri for "Dumri Vihar"); and, when nothing
+        matches the whole name at all (MATCH), its LOOSE closest spellings in the district down to FLOOR ("loose"). Also
+        the whole name's best similarity."""
+        whole = nearby(names, district_keys, state_keys, district_parts, state_parts)
+        best = max(whole.values(), default=0.0)
+        hits = {i: (sim, "name", "") for i, sim in whole.items() if sim >= best - NEAR_SPELLING}
+
+        def add(i, sim, how, word=""):
+            if i not in hits or sim - PENALTY[how] > hits[i][0] - PENALTY[hits[i][1]]:
+                hits[i] = (sim, how, word)
+        for w in words:
+            for _, sim, i in process.extract(norm(w), district_keys, scorer=spelling, limit=3):
+                if sim >= SURE:
+                    add(i, sim, "word", w)
+        if not whole:
+            for i, sim in fuzzy(names, district_keys, LOOSE).items():
+                if sim >= FLOOR:
+                    add(i, sim, "loose")
+        return hits, best
 
     def forest_options(m, names, weight):
         """Points inside a mapped forest, sanctuary, or hill (protocol rule 4): in the part within a
@@ -442,17 +523,24 @@ def candidates(inc, mentions, places, osm, areas):
             # "under X Police Station limits": within the station's limits, at the place it is named after
             # (protocol rule 2); other jurisdictions, near the place; then the subdistrict X lies in
             limits = is_station(m)
-            for i, sim in station_places(query_names(m["name"]), keys, district_parts, district).items():
+            namesakes = station_places(query_names(m["name"]), keys, district_parts, district)
+            loose = not namesakes  # none close: the closest spelling, for the model to judge ("Gomia" -> Gumia)
+            if loose:
+                namesakes = {i: sim for i, sim in fuzzy(query_names(m["name"]), keys, 1).items() if sim >= FLOOR}
+            for i, sim in namesakes.items():
                 p = district.loc[i]
                 sub = str(p["subdistrict_name"]).title()
                 adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"])
+                adjust -= LOOSE_PENALTY if loose else 0
                 options.append({"relation": "limits" if limits else "near", "source": "SHRUG", "name": p["name"],
                                 "shrid2": p["shrid2"], "subdistrict_id": p["subdistrict_id"], "lat": p["lat"], "lon": p["lon"],
                                 "score": sim + ROLE_WEIGHT["jurisdiction"] + 0.01 + adjust,  # just above its subdistrict
-                                "query": m["name"],
-                                "evidence": " · ".join([f"SHRUG {p['place_type']} in {sub} subdistrict, spelling {sim:.2f} to “{m['name']}”",
+                                "query": m["name"], "match": "loose" if loose else "name",
+                                "evidence": " · ".join([f"SHRUG {p['place_type']} in {sub} subdistrict, spelling {sim:.2f} to “{m['name']}”"
+                                                        + (", the closest spelling" if loose else ""),
                                                         f"jurisdiction (“{m['quote']}”)"] + notes),
                                 "label": (f"Within {m['name']} police station limits: {p['name']} {p['place_type']}, {sub} subdistrict"
+                                          f"{spelled(sim, m['name'])}"
                                           if limits else f"Near {p['name']} {p['place_type']}, {sub} subdistrict{spelled(sim, m['name'])}"),
                                 "why": said(m) + (" That names the police station's area, so the label is the place the station is "
                                                   "named after (rule 2)." if limits else " That names an area around this place.")
@@ -462,12 +550,28 @@ def candidates(inc, mentions, places, osm, areas):
                 options.append({"relation": "subdistrict", "source": "SHRUG",
                                 "name": str(p["subdistrict_name"]).title(), "shrid2": "",
                                 "subdistrict_id": p["subdistrict_id"], "lat": None, "lon": None,
-                                "score": sim + ROLE_WEIGHT["jurisdiction"], "query": m["name"],
+                                "score": sim + ROLE_WEIGHT["jurisdiction"] - (LOOSE_PENALTY if loose else 0), "query": m["name"],
                                 "evidence": f"subdistrict of {p['name']}, a jurisdiction in the text (“{m['quote']}”)",
                                 "label": f"{str(p['subdistrict_name']).title()} subdistrict",
                                 "why": f"{said(m)} That names a jurisdiction, and {p['name']} is in {str(p['subdistrict_name']).title()} subdistrict (rule 2).",
                                 "source_note": "SHRUG subdistrict" + ("" if sim >= 0.995 else f"; {p['name']} has {similarity(sim)} to “{m['name']}”") + "."})
                 m["matched"] = f"SHRUG {sim:.2f} (jurisdiction)"
+            # the station itself, where OpenStreetMap has it: the map point (rule 2)
+            for i, sim in osm_police(m["name"]).items() if limits else []:
+                h = osm.loc[i]
+                adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"])
+                where = f"falls in {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"] else "outside every village"
+                options.append({"relation": "limits", "source": "OpenStreetMap", "name": h["primary"], "osm_id": h["osm_id"],
+                                "shrid2": h["shrid2"], "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
+                                "score": sim + ROLE_WEIGHT["jurisdiction"] - 0.05 + adjust, "query": m["name"],
+                                "evidence": " · ".join([f"OpenStreetMap police station, {where}, spelling {sim:.2f} to “{m['name']}”",
+                                                        f"jurisdiction (“{m['quote']}”)"] + notes),
+                                "label": f"Within {m['name']} police station limits: the station's point ({h['primary']})",
+                                "why": said(m) + " OpenStreetMap maps the station; its point is the map point, and the place is "
+                                                 "the one the station is named after (rule 2)." + facts(notes),
+                                "source_note": f"OpenStreetMap police station, {where}, {similarity(sim)}"
+                                               + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
+                m["matched"] += (" · " if m["matched"] else "") + f"OpenStreetMap {sim:.2f} (police station)"
             continue
         # "under X gram panchayat": near the place it is named after (protocol rule 2)
         panchayat = is_panchayat(m)
@@ -487,31 +591,30 @@ def candidates(inc, mentions, places, osm, areas):
                     m["matched"] = "SHRUG subdistrict"
             continue
         names = query_names(m["name"])
+        words = query_words(names[0])
 
         # SHRUG villages and towns
-        hits = nearby(names, keys, state_keys, district_parts, state_parts)
-        best = max(hits.values(), default=0.0)
-        for i, sim in sorted(hits.items(), key=lambda x: -x[1]):
-            if sim < best - NEAR_SPELLING:
-                continue
+        hits, best = ranked(names, words, keys, state_keys, district_parts, state_parts)
+        for i, (sim, how, word) in sorted(hits.items(), key=lambda x: PENALTY[x[1][1]] - x[1][0]):
             p = places.loc[i]
             adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"])
+            clause, suffix, contains = how_matched(sim, how, word, m["name"])
             options.append({"relation": relation, "source": "SHRUG", "name": p["name"], "shrid2": p["shrid2"],
-                            "subdistrict_id": p["subdistrict_id"], "lat": p["lat"], "lon": p["lon"], "score": sim + weight + adjust,
-                            "query": m["name"],
-                            "evidence": " · ".join([f"SHRUG {p['place_type']} in {str(p['subdistrict_name']).title()} subdistrict, "
-                                                    f"spelling {sim:.2f} to “{m['name']}”",
+                            "subdistrict_id": p["subdistrict_id"], "lat": p["lat"], "lon": p["lon"],
+                            "score": sim - PENALTY[how] + weight + adjust, "query": m["name"], "match": how,
+                            "evidence": " · ".join([f"SHRUG {p['place_type']} in {str(p['subdistrict_name']).title()} subdistrict, {clause}",
                                                     f"{m['role']} (“{m['quote']}”)"] + notes),
                             "label": f"{relation.capitalize()} {p['name']} {p['place_type']}, "
-                                     f"{str(p['subdistrict_name']).title()} subdistrict{spelled(sim, m['name'])}",
-                            "why": said(m)
+                                     f"{str(p['subdistrict_name']).title()} subdistrict{suffix}",
+                            "why": said(m) + contains
                                    + (f" The {m['kind']} is named after this place (rule 4.3)." if m["kind"] in ("forest", "hill") else "")
                                    + (" The gram panchayat is named after this place (rule 2)." if panchayat else "")
-                                   + (f" {p['name']} is the closest SHRUG name." if sim < SURE else "") + facts(notes),
+                                   + closest(p["name"], sim, how, "SHRUG") + facts(notes),
                             "source_note": f"SHRUG {p['place_type']} in {str(p['subdistrict_name']).title()} subdistrict, {similarity(sim)}"
-                                           + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
-        if best:
-            m["matched"] = f"SHRUG {best:.2f}"
+                                           + ("." if sim >= 0.995 else f" to “{word or m['name']}”.")})
+        if hits:
+            sim, how, word = max(hits.values(), key=lambda h: h[0])
+            m["matched"] = f"SHRUG {sim:.2f}" + (f" (the word {word})" if how == "word" else "")
 
         # forests, hills, sanctuaries: points inside the mapped area, whatever SHRUG found
         if m["kind"] in FOREST_KINDS and not osm_state.empty:
@@ -523,33 +626,35 @@ def candidates(inc, mentions, places, osm, areas):
         # OpenStreetMap's named places, when SHRUG has nothing close
         if best >= SURE or m["kind"] not in OSM_KINDS or osm_state.empty:
             continue
-        ohits = nearby(names, settlement_district_keys, settlement_keys)
-        obest = max(ohits.values(), default=0.0)
+        ohits, _ = ranked(names, words, settlement_district_keys, settlement_keys)
         seen = set()
-        for i, sim in sorted(ohits.items(), key=lambda x: -x[1]):
+        for i, (sim, how, word) in sorted(ohits.items(), key=lambda x: PENALTY[x[1][1]] - x[1][0]):
             h = osm.loc[i]
-            if sim < obest - NEAR_SPELLING or h["osm_id"] in seen:
+            if h["osm_id"] in seen:
                 continue
             seen.add(h["osm_id"])
             adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"])
             where = f"falls in {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"] else "outside every village"
             alias = f" (listed as “{h['name']}”)" if h["name"] != h["primary"] else ""
+            clause, suffix, contains = how_matched(sim, how, word, m["name"])
             options.append({"relation": relation, "source": "OpenStreetMap", "name": h["primary"], "osm_id": h["osm_id"],
                             "shrid2": h["shrid2"],
                             "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
-                            "score": sim + weight - 0.05 + adjust,  # a little below an equal SHRUG match
-                            "query": m["name"],
-                            "evidence": " · ".join([f"OpenStreetMap {h['kind']}{alias}, {where}, spelling {sim:.2f} to “{m['name']}”",
+                            "score": sim - PENALTY[how] + weight - 0.05 + adjust,  # a little below an equal SHRUG match
+                            "query": m["name"], "match": how,
+                            "evidence": " · ".join([f"OpenStreetMap {h['kind']}{alias}, {where}, {clause}",
                                                     f"{m['role']} (“{m['quote']}”)"] + notes),
-                            "label": f"{relation.capitalize()} {h['primary']} {h['kind'].replace('_', ' ')}"
+                            "label": f"{relation.capitalize()} {h['primary']}"
+                                     + ("" if re.search(r"station|halt", h["primary"], flags=re.I) else f" {h['kind'].replace('_', ' ')}")
                                      + (f", {sub_names[h['subdistrict_id']]} subdistrict" if h["subdistrict_id"] in sub_names else "")
-                                     + spelled(sim, m["name"]),
-                            "why": said(m) + (f" {h['primary']} is the closest OpenStreetMap name." if sim < SURE else "") + facts(notes),
+                                     + suffix,
+                            "why": said(m) + contains + closest(h["primary"], sim, how, "OpenStreetMap") + facts(notes),
                             "source_note": f"OpenStreetMap {h['kind'].replace('_', ' ')}"
                                            + (f", listed as “{h['name']}”" if alias else "")
                                            + (f", inside SHRUG {village_types.get(h['shrid2'], 'village')} {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"]
                                               else ", outside every SHRUG village")
-                                           + f", {similarity(sim)}" + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
+                                           + f", {similarity(sim)}" + ("." if sim >= 0.995 else f" to “{word or m['name']}”.")})
+        obest = max((sim for sim, how, _ in ohits.values() if how != "loose"), default=0.0)  # a loose spelling is not a find
         if obest:
             m["matched"] += (" · " if m["matched"] else "") + f"OpenStreetMap {obest:.2f}"
 
@@ -571,7 +676,7 @@ def candidates(inc, mentions, places, osm, areas):
     offered = {o["subdistrict_id"] for o in out if o["relation"] == "subdistrict"}
     for rank, o in enumerate(list(out), 1):
         sid = o["subdistrict_id"]
-        if len(out) >= TOP or o["relation"] == "subdistrict" or sid in offered or sid not in sub_names:
+        if len(out) >= TOP or o["relation"] == "subdistrict" or o.get("match") == "loose" or sid in offered or sid not in sub_names:
             continue
         offered.add(sid)
         out.append({"relation": "subdistrict", "source": "SHRUG", "name": sub_names[sid], "shrid2": "",
@@ -586,7 +691,7 @@ def candidates(inc, mentions, places, osm, areas):
 # ---------------------------------------------------------------- 3. selection
 
 class Pick(BaseModel):
-    option: int  # 1-5, or 0 for none of these
+    option: int  # 1-TOP, or 0 for none of these
     reason: str
 
 
@@ -641,6 +746,7 @@ def main():
     places = pd.read_parquet(DATA / "places.parquet")
     osm = pd.read_parquet(DATA / "osm_places.parquet")
     areas = Areas()
+    load_descriptors(places, osm)
     for state_id in sample["state_id"].unique():  # build the subdistrict indexes before the workers share them
         areas.tree(state_id)
     if args.no_osm:

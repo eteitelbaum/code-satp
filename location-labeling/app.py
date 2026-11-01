@@ -53,6 +53,7 @@ FOUND_VIA = ["suggestion", "shortlist", "search", "Google Maps", "OpenStreetMap"
 SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
 HAMLETS = {"hamlet", "isolated_dwelling", "farm"}  # OpenStreetMap settlement kinds that SHRUG folds into a village
 NOT_SETTLEMENTS = ["forest", "protected area", "peak", "hill", "ridge", "valley"]  # OpenStreetMap kinds that are not places people live
+STATIONS = ["police station", "railway station"]  # OpenStreetMap landmarks, never a village's or town's own point
 NAMESAKE_KM = 5  # how far OpenStreetMap's point for a SHRUG place can be from SHRUG's location
 POINT_DECIDED = [*AT_PLACE, "subdistrict"]  # labels that need a map point of their own, or "no better point", to save
 POINT_KEYS = ("coords_done", "located", "located_source", "point_suggestion", "area_osm")  # the map point's state
@@ -207,6 +208,11 @@ def apply_suggestion(o):
         st.session_state[key("area_name")] = o.name  # saved as the place name
         st.session_state[key("area_label")] = shown_as
         st.session_state[key("type")] = "hill" if re.search(r"OpenStreetMap (peak|hill|ridge)", o.evidence) else "forest"
+    elif o.source == "OpenStreetMap" and o.relation == "limits":  # the police station's point; the place is its namesake (rule 2)
+        set_point(o.lat, o.lon, "the police station (OpenStreetMap)")
+        st.session_state[key("point_suggestion")] = int(o.rank)
+        st.session_state[key("precision")] = PS_LIMITS
+        st.session_state[key("type")] = "police station"
     elif o.source == "OpenStreetMap":  # a settlement SHRUG does not list under this name: the map point only (rule 5)
         set_point(o.lat, o.lon, "an OpenStreetMap point")
         st.session_state[key("point_suggestion")] = int(o.rank)
@@ -375,8 +381,8 @@ def collapse_towns(df, groups):
 
 @st.cache_data
 def osm_settlements(state_id):
-    """OpenStreetMap's hamlets, localities, and other settlements in a state, under names other than the SHRUG
-    place they fall in (so "Sasang" in Maipa is listed; OpenStreetMap's copy of a SHRUG village is not)."""
+    """OpenStreetMap's hamlets, localities, other settlements, and police and railway stations in a state, under names
+    other than the SHRUG place they fall in (so "Sasang" in Maipa is listed; OpenStreetMap's copy of a SHRUG village is not)."""
     if not OSM_FILE.exists():
         return pd.DataFrame(columns=["osm_id", "kind", "primary", "name", "lat", "lon", "district_id", "shrid2", "key"])
     osm = pd.read_parquet(OSM_FILE, filters=[("state_id", "==", state_id)])
@@ -392,7 +398,7 @@ def osm_namesakes(state_id):
     if not OSM_FILE.exists():
         return pd.DataFrame(columns=["osm_id", "lat", "lon", "key"])
     osm = pd.read_parquet(OSM_FILE, filters=[("state_id", "==", state_id)])
-    osm = osm[~osm["kind"].isin(NOT_SETTLEMENTS)].assign(key=lambda d: d["name"].map(norm))
+    osm = osm[~osm["kind"].isin(NOT_SETTLEMENTS + STATIONS)].assign(key=lambda d: d["name"].map(norm))
     return osm.drop_duplicates(["osm_id", "key"])[["osm_id", "lat", "lon", "key"]].reset_index(drop=True)
 
 

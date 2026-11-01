@@ -24,6 +24,8 @@ from suggest import GENERIC, norm, spelling
 
 DATA = Path(__file__).parent / "data"
 SAME_NAME = 0.85
+OSM_SETTLEMENTS = {"city", "town", "village", "hamlet", "isolated_dwelling", "locality", "neighbourhood", "suburb",
+                   "quarter", "farm"}  # build_osm.py's PLACES: not forests, hills, or stations named after villages
 GEONAMES_COLUMNS = ["geonameid", "name", "asciiname", "alternatenames", "lat", "lon", "feature_class", "feature_code",
                     "country", "cc2", "admin1", "admin2", "admin3", "admin4", "population", "elevation", "dem",
                     "timezone", "modified"]
@@ -56,9 +58,11 @@ def main():
     sample = sample[(sample.split == args.split) & (sample.village_name.str.strip() != "")]
     subs = pd.read_parquet(DATA / "subdistrict_shapes.parquet")
     gn = geonames(subs)
+    osm = pd.read_parquet(DATA / "osm_places.parquet")
     lists = {
         "SHRUG": by_district(pd.read_parquet(DATA / "places.parquet"), "name"),
-        "OpenStreetMap": by_district(pd.read_parquet(DATA / "osm_places.parquet"), "name"),
+        "OpenStreetMap": by_district(osm, "name"),
+        "OpenStreetMap, settlements": by_district(osm[osm.kind.isin(OSM_SETTLEMENTS)], "name"),
         "GeoNames": by_district(gn, "place"),
         "GeoNames, populated places": by_district(gn[gn.feature_class == "P"], "place"),
     }
