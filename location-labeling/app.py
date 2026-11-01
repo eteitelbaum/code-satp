@@ -141,8 +141,10 @@ def osm_map(name, osm_id="", lat=None, lon=None):
     return "https://www.openstreetmap.org/search?query=" + quote_plus(f"{name}, {inc['district']}, {inc['state']}")
 
 
-def google_maps(name):
-    """A Google Maps search for a place name in the incident's district, filled in."""
+def google_maps(name, lat=None, lon=None):
+    """Google Maps: a pin at the spot, else a search for the name in the incident's district."""
+    if pd.notna(lat) and pd.notna(lon):
+        return f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
     return "https://www.google.com/maps/search/" + quote_plus(f"{name}, {inc['district']}, {inc['state']}, India")
 
 
@@ -178,7 +180,10 @@ def apply_suggestion(o):
         # town when the place, or the SHRUG place an OpenStreetMap point falls in, is a town
         in_shrug = load_places().loc[lambda d: d.shrid2 == o.shrid2, "place_type"]
         town = (in_shrug == "town").any() or re.search(r"(SHRUG|OpenStreetMap) (town|city)", o.evidence)
-        st.session_state[key("type")] = "police station" if ps_limits else "town" if town else "village"
+        # what the report names, as the model read it: "Baskatwa forest" is a forest named after a village
+        kinds = mentions.loc[(mentions.incident_number == iid) & (mentions["name"] == o.query), "kind"]
+        named_kind = next((k for k in kinds if k in ("forest", "hill", "camp", "river", "road", "police station")), "")
+        st.session_state[key("type")] = "police station" if ps_limits else named_kind or ("town" if town else "village")
         if o.source == "OpenStreetMap":
             coords = f"{o.lat}, {o.lon}"
             st.session_state[key("coords")] = st.session_state[key("coords_done")] = coords
@@ -566,7 +571,8 @@ with left:
     st.caption(f"Coded village: **{inc['village_name'] or '—'}** · other locations: **{inc['other_locations'] or '—'}**  "
                "· yellow = names the coders recorded · green = places in the text the coders did not record")
     gq = quote_plus(f"{names[0] if names else ''} {inc['district']} {inc['state']} India")
-    st.markdown(f"[SATP page]({satp_page or inc['satp_url']}) · [Google Maps](https://www.google.com/maps/search/{gq})")
+    st.markdown(f"[SATP page]({satp_page or inc['satp_url']}) · [Google Maps](https://www.google.com/maps/search/{gq})"
+                f" · [OpenStreetMap]({osm_map(names[0] if names else '')})")
 
     sug = suggestions[suggestions.incident_number == iid]
     if not len(sug) and len(suggestions):
@@ -588,7 +594,8 @@ with left:
             if c_opt.button(f"{'● ' if on else ''}{o.rank}. {title}{mark}", key=key(f"s_{o.rank}"),
                             type="primary" if on else "secondary", use_container_width=True):
                 apply_suggestion(o)
-            c_g.link_button("Google", google_maps(o.query or o.name), use_container_width=True)
+            # the place the option suggests (the links above the options search the report's own spelling)
+            c_g.link_button("Google", google_maps(o.name, o.lat, o.lon), use_container_width=True)
             c_o.link_button("OSM", osm_map(o.name, o.osm_id, o.lat, o.lon), use_container_width=True)
             st.caption(f"**Why:** {o.why}  \n**Source:** {o.source_note}" if o.why else o.evidence)
         if sug[sug.model_pick]["rank"].eq(0).any():
