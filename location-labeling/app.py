@@ -492,6 +492,7 @@ with st.sidebar:
         st.session_state.pos += 1
     if st.button("Back to the next unlabeled", use_container_width=True, disabled=st.session_state.pos == frontier):
         st.session_state.pos = frontier
+    unsaved_note = st.empty()  # filled once the form is drawn
     with st.expander("Labeling protocol"):
         readme = (ROOT / "README.md").read_text()
         st.markdown(readme.split("## Labeling protocol", 1)[1].split("\n## ", 1)[0])
@@ -912,6 +913,49 @@ with right:
                 suggestion_rank = str(int(o.rank))
                 break
 
+    # the label as the form stands, saved by the button below
+    row = chosen.iloc[0] if precision in AT_PLACE and len(chosen) else None
+    if precision in ("district", "state or unknown"):
+        subdistrict_id = ""
+    if precision == AREA:  # the subdistrict and district come from the point's unit
+        if unit_type == "subdistrict":
+            _, district_id, subdistrict_id = unit_id.split("-")
+        elif len(here := all_places[all_places.shrid2 == unit_id]):
+            district_id, subdistrict_id = here["district_id"].iloc[0], here["subdistrict_id"].iloc[0]
+        in_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == district_id)]
+    sub_name = in_district.loc[in_district.subdistrict_id == subdistrict_id, "subdistrict_name"]
+    loc = st.session_state.get(key("located"))
+    form = {
+        "incident_number": iid, "split": split, "order": inc["order"], "named_below_district": named,
+        "precision": precision, "certainty": certainty,
+        "shrid2": "|".join(chosen["shrid2"]) if row is not None else "",  # several IDs for a whole split town
+        "place_name": row["name"] if row is not None else
+                      (st.session_state.get(key("area_name")) or default("place_name", "")) if precision == AREA else "",
+        "subdistrict_id": subdistrict_id,
+        "subdistrict_name": sub_name.iloc[0] if subdistrict_id and len(sub_name) else "",
+        "state_id": inc["state_id"], "district_id_2011": district_id if precision != "state or unknown" else "",
+        "place_type": place_type, "reason": reason, "found_via": "|".join(found_via),
+        "preselected": pre_shrid, "preselect_source": pre_source,
+        "confirmed": str(bool(pre_shrid) and choice == pre_shrid and precision == AT_PLACE[0]),
+        "pin_consulted": str(st.session_state.get(key("pin_consulted"), False)),
+        "located_lat": loc[0] if loc and loc[0] is not None else "",
+        "located_lon": loc[1] if loc and loc[0] is not None else "",
+        "located_match": loc[2] if loc and loc[0] is not None else "",
+        "point_lat": f"{point[0]:.6f}" if point else "", "point_lon": f"{point[1]:.6f}" if point else "",
+        "point_source": point_source, "unit_type": unit_type, "unit_id": unit_id, "unit_name": unit_name,
+        "suggestion_rank": suggestion_rank, "model_pick_rank": model_pick_rank,
+        "suggestion_run": sug["run"].iloc[0] if len(sug) and "run" in sug else "",  # which suggest.py run was shown
+        "notes": notes, "labeler": labeler,
+    }
+    # a saved label changed on the form but not saved again: going to another incident would drop the change
+    if existing is not None and existing["precision"] != "skipped":
+        changed = [c for c in ("named_below_district", "precision", "certainty", "shrid2", "place_name", "subdistrict_id",
+                               "place_type", "reason", "found_via", "located_lat", "located_lon", "notes")
+                   if str(form[c] or "") != (LEGACY.get(existing[c], existing[c]) if c == "precision" else existing[c])]
+        if changed:
+            st.warning("Unsaved changes: save before going to another incident, or they are lost.")
+            unsaved_note.warning("Unsaved changes on this incident.")
+
     if st.button("Save and go to next", type="primary", use_container_width=True):
         if not labeler:
             st.error("Enter your initials in the sidebar first.")
@@ -934,38 +978,7 @@ with right:
         elif precision == AREA and not point:
             st.error("Pick a forest suggestion, or paste a point in the forest under Locate by coordinates.")
         else:
-            row = chosen.iloc[0] if precision in AT_PLACE else None
-            if precision in ("district", "state or unknown"):
-                subdistrict_id = ""
-            if precision == AREA:  # the subdistrict and district come from the point's unit
-                if unit_type == "subdistrict":
-                    _, district_id, subdistrict_id = unit_id.split("-")
-                elif len(here := all_places[all_places.shrid2 == unit_id]):
-                    district_id, subdistrict_id = here["district_id"].iloc[0], here["subdistrict_id"].iloc[0]
-                in_district = all_places[(all_places.state_id == inc["state_id"]) & (all_places.district_id == district_id)]
-            sub_name = in_district.loc[in_district.subdistrict_id == subdistrict_id, "subdistrict_name"]
-            save_label({
-                "incident_number": iid, "split": split, "order": inc["order"], "named_below_district": named,
-                "precision": precision, "certainty": certainty,
-                "shrid2": "|".join(chosen["shrid2"]) if row is not None else "",  # several IDs for a whole split town
-                "place_name": row["name"] if row is not None else
-                              (st.session_state.get(key("area_name")) or default("place_name", "")) if precision == AREA else "",
-                "subdistrict_id": subdistrict_id,
-                "subdistrict_name": sub_name.iloc[0] if subdistrict_id and len(sub_name) else "",
-                "state_id": inc["state_id"], "district_id_2011": district_id if precision != "state or unknown" else "",
-                "place_type": place_type, "reason": reason, "found_via": "|".join(found_via),
-                "preselected": pre_shrid, "preselect_source": pre_source,
-                "confirmed": str(bool(pre_shrid) and choice == pre_shrid and precision == AT_PLACE[0]),
-                "pin_consulted": str(st.session_state.get(key("pin_consulted"), False)),
-                "located_lat": loc[0] if (loc := st.session_state.get(key("located"))) and loc[0] is not None else "",
-                "located_lon": loc[1] if loc and loc[0] is not None else "",
-                "located_match": loc[2] if loc and loc[0] is not None else "",
-                "point_lat": f"{point[0]:.6f}" if point else "", "point_lon": f"{point[1]:.6f}" if point else "",
-                "point_source": point_source, "unit_type": unit_type, "unit_id": unit_id, "unit_name": unit_name,
-                "suggestion_rank": suggestion_rank, "model_pick_rank": model_pick_rank,
-                "suggestion_run": sug["run"].iloc[0] if len(sug) and "run" in sug else "",  # which suggest.py run was shown
-                "notes": notes, "labeler": labeler, "labeled_at": datetime.now().isoformat(timespec="seconds"),
-            })
+            save_label({**form, "labeled_at": datetime.now().isoformat(timespec="seconds")})
             next_unlabeled()
 
     with st.expander("Skip this incident"):
