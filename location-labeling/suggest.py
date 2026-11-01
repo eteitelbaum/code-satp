@@ -3,6 +3,8 @@
 For each incident in a split:
 1. Extraction: GPT-4o-mini reads the coded summary and the full SATP entry and lists the
    places named, with each place's role (where it happened, near it, a jurisdiction, ...).
+   A jurisdiction is offered as the place it is named after: "under X Police Station limits" within
+   the station's limits (protocol rule 2), "under X gram panchayat" near X; its subdistrict follows.
 2. Candidates: each place is matched to SHRUG villages, towns, and subdistricts in the
    coded 2011 district (or, failing a close match there, elsewhere in the state, which
    catches events the coders placed in a neighboring district). Places SHRUG does not list
@@ -62,7 +64,7 @@ MODEL = "gpt-4o-mini"
 TOP = 5
 MATCH = 0.80  # spelling similarity for a SHRUG candidate
 SURE = 0.92  # a SHRUG match this close needs no OpenStreetMap match
-OSM_KINDS = {"village", "town", "hamlet", "locality", "police station", "camp", "other", "forest", "hill"}  # mention kinds matched to OpenStreetMap
+OSM_KINDS = {"village", "town", "hamlet", "locality", "police station", "gram panchayat", "camp", "other", "forest", "hill"}  # mention kinds matched to OpenStreetMap
 FOREST_KINDS = {"forest", "hill", "other"}  # mention kinds matched to mapped forests and hills (protocol rule 4); "other" catches parks
 NATURAL = {"forest", "protected area", "hill", "peak", "ridge", "valley"}  # OpenStreetMap kinds they match
 WORKERS = 8  # incidents run at once
@@ -75,7 +77,7 @@ USAGE = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
 ROLE_WEIGHT = {"where it happened": 0.3, "near where it happened": 0.2, "jurisdiction": -0.1}
 IN_NAMED_SUBDISTRICT = 0.2
 NEAR_POLICE_STATION = 0.1  # within 15 km of a named police station
-SETTLEMENT_KINDS = {"village", "town", "hamlet", "locality", "police station", "camp", "other"}
+SETTLEMENT_KINDS = {"village", "town", "hamlet", "locality", "police station", "gram panchayat", "camp", "other"}
 OTHER_DISTRICT = -0.1  # a match outside the coded district, which needs a closer spelling (SURE)
 NEAR_SPELLING = 0.05  # keep a name's SHRUG matches within this of its best
 
@@ -101,6 +103,18 @@ def query_names(name):
     clean = re.sub(r"\s+", " ", re.sub(GENERIC, " ", name, flags=re.I)).strip(" .,-")
     parts = [x.strip() for x in re.split(r"[-/&,]| and ", clean) if len(norm(x)) >= 3]
     return list(dict.fromkeys([clean] + (parts if len(parts) > 1 else [])))
+
+
+def is_panchayat(m):
+    """A gram panchayat named X ("under X gram panchayat", "in X panchayat"), whatever kind the model gave it; not
+    "a panchayat office at X", and not a police station the model called a panchayat."""
+    return bool(re.search(rf"{re.escape(m['name'])}\W+(gram\W+)?panchayat", m["quote"], flags=re.I))
+
+
+def is_station(m):
+    """A police station named X ("under X Police Station limits"), not a village the quote ties to another station."""
+    return m["kind"] == "police station" or bool(
+        re.search(rf"{re.escape(m['name'])}\W+(sadar\W+|town\W+|rural\W+)?(police|p\.?s\b|thana)", m["quote"], flags=re.I))
 
 
 # words that qualify a village name rather than name it ("Bade Bacheli", "Kolhua Khurd")
@@ -186,8 +200,8 @@ def append_jsonl(path, row):
 
 class Mention(BaseModel):
     name: str
-    kind: Literal["village", "town", "hamlet", "locality", "police station", "camp", "forest", "hill", "river",
-                  "road", "mandal or block", "district", "state", "other"]
+    kind: Literal["village", "town", "hamlet", "locality", "police station", "gram panchayat", "camp", "forest", "hill",
+                  "river", "road", "mandal or block", "district", "state", "other"]
     role: Literal["where it happened", "near where it happened", "jurisdiction", "other place in this incident",
                   "another incident"]
     quote: str
@@ -202,23 +216,23 @@ EXTRACT_PROMPT = """You help geocode incidents in India's Maoist insurgency.
 The CODED SUMMARY describes one incident. The FULL SATP ENTRY, when given, is the news report it came from: it may add detail about the same incident, and it may also describe other incidents or follow-ups.
 
 List every named place below the state level that the texts mention, once each, spelled as written. Give the proper name only, without words such as village, police station, forest, hill, camp, school, or district ("Kurdeg", not "Kurdeg Police Station"). For each place give:
-- kind: what the place is (village, town, hamlet, locality, police station, camp, forest, hill, river, road, mandal or block, district, state, other). A mandal, block, tehsil, taluka, or sub-division is "mandal or block".
+- kind: what the place is (village, town, hamlet, locality, police station, gram panchayat, camp, forest, hill, river, road, mandal or block, district, state, other). A mandal, block, tehsil, taluka, or sub-division is "mandal or block". A gram panchayat or panchayat is "gram panchayat", even when it shares a village's name.
 - role, relative to the incident in the CODED SUMMARY:
   - "where it happened": the event took place in or at this place
   - "near where it happened": the event took place near it, or in a forest, hill, or area named after or tied to it
-  - "jurisdiction": an administrative or police area containing the spot, e.g. "under X Police Station limits", "X mandal", "X district"
+  - "jurisdiction": an administrative or police area containing the spot, e.g. "under X Police Station limits", "under X gram panchayat", "X mandal", "X district"
   - "other place in this incident": named in the incident but not where it happened (where victims lived, where forces came from, where bodies were taken)
   - "another incident": belongs only to a different incident in the full entry
 - quote: the shortest phrase from the text that shows the role."""
 
 
 def extract(client, cache, inc, texts):
-    key = inc["incident_number"]
-    if key in cache:
-        return cache[key]["mentions"]
     user = f"CODED SUMMARY:\n{inc['incident_summary']}"
     if texts:
         user += "\n\nFULL SATP ENTRY:\n" + "\n\n".join(texts)
+    key = inc["incident_number"] + "|" + hashlib.sha1((EXTRACT_PROMPT + user).encode()).hexdigest()[:12]  # new prompt, new call
+    if key in cache:
+        return cache[key]["mentions"]
     r = call_model(
         client, model=MODEL, temperature=0, response_format=Extraction,
         messages=[{"role": "system", "content": EXTRACT_PROMPT}, {"role": "user", "content": user}],
@@ -424,10 +438,27 @@ def candidates(inc, mentions, places, osm, areas):
         if m["role"] in ("another incident", "other place in this incident") or m["kind"] in ("district", "state") \
                 or (norm(m["name"]) in district_names and m["kind"] not in SETTLEMENT_KINDS):  # keep "Ranchi" the town
             continue
-        if m["role"] == "jurisdiction" and m["kind"] != "mandal or block":
-            # "under X Police Station": the subdistrict X lies in, not X itself (protocol rule 2)
+        if m["role"] == "jurisdiction" and m["kind"] != "mandal or block" and not is_panchayat(m):
+            # "under X Police Station limits": within the station's limits, at the place it is named after
+            # (protocol rule 2); other jurisdictions, near the place; then the subdistrict X lies in
+            limits = is_station(m)
             for i, sim in station_places(query_names(m["name"]), keys, district_parts, district).items():
                 p = district.loc[i]
+                sub = str(p["subdistrict_name"]).title()
+                adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"])
+                options.append({"relation": "limits" if limits else "near", "source": "SHRUG", "name": p["name"],
+                                "shrid2": p["shrid2"], "subdistrict_id": p["subdistrict_id"], "lat": p["lat"], "lon": p["lon"],
+                                "score": sim + ROLE_WEIGHT["jurisdiction"] + 0.01 + adjust,  # just above its subdistrict
+                                "query": m["name"],
+                                "evidence": " · ".join([f"SHRUG {p['place_type']} in {sub} subdistrict, spelling {sim:.2f} to “{m['name']}”",
+                                                        f"jurisdiction (“{m['quote']}”)"] + notes),
+                                "label": (f"Within {m['name']} police station limits: {p['name']} {p['place_type']}, {sub} subdistrict"
+                                          if limits else f"Near {p['name']} {p['place_type']}, {sub} subdistrict{spelled(sim, m['name'])}"),
+                                "why": said(m) + (" That names the police station's area, so the label is the place the station is "
+                                                  "named after (rule 2)." if limits else " That names an area around this place.")
+                                       + facts(notes),
+                                "source_note": f"SHRUG {p['place_type']} in {sub} subdistrict, {similarity(sim)}"
+                                               + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
                 options.append({"relation": "subdistrict", "source": "SHRUG",
                                 "name": str(p["subdistrict_name"]).title(), "shrid2": "",
                                 "subdistrict_id": p["subdistrict_id"], "lat": None, "lon": None,
@@ -438,8 +469,10 @@ def candidates(inc, mentions, places, osm, areas):
                                 "source_note": "SHRUG subdistrict" + ("" if sim >= 0.995 else f"; {p['name']} has {similarity(sim)} to “{m['name']}”") + "."})
                 m["matched"] = f"SHRUG {sim:.2f} (jurisdiction)"
             continue
-        weight = ROLE_WEIGHT.get(m["role"], 0.0)
-        relation = "in" if m["role"] == "where it happened" and m["kind"] in SETTLEMENT_KINDS else "near"
+        # "under X gram panchayat": near the place it is named after (protocol rule 2)
+        panchayat = is_panchayat(m)
+        weight = ROLE_WEIGHT["near where it happened"] if panchayat else ROLE_WEIGHT.get(m["role"], 0.0)
+        relation = "in" if m["role"] == "where it happened" and m["kind"] in SETTLEMENT_KINDS and not panchayat else "near"
         if m["kind"] == "mandal or block":
             for _, s in subs.iterrows():
                 sim = spelling(norm(m["name"]), norm(s["subdistrict_name"]))
@@ -473,6 +506,7 @@ def candidates(inc, mentions, places, osm, areas):
                                      f"{str(p['subdistrict_name']).title()} subdistrict{spelled(sim, m['name'])}",
                             "why": said(m)
                                    + (f" The {m['kind']} is named after this place (rule 4.3)." if m["kind"] in ("forest", "hill") else "")
+                                   + (" The gram panchayat is named after this place (rule 2)." if panchayat else "")
                                    + (f" {p['name']} is the closest SHRUG name." if sim < SURE else "") + facts(notes),
                             "source_note": f"SHRUG {p['place_type']} in {str(p['subdistrict_name']).title()} subdistrict, {similarity(sim)}"
                                            + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
@@ -558,7 +592,7 @@ class Pick(BaseModel):
 
 SELECT_PROMPT = """You help geocode incidents in India's Maoist insurgency. Given the incident text and numbered options for where it happened, choose the option that best gives where the event in the CODED SUMMARY took place, or 0 if none fits.
 
-Rules: prefer the most specific place the text supports; a place the event happened in or at beats one it happened near; "under X Police Station" names a jurisdiction, not the place; ignore places that belong to other incidents in the full entry. For an event in a forest, hill, or sanctuary, take the first that applies: a village or town the text places the event in or near; a point in the part of the forest within the jurisdiction the text names (police station, mandal, or block); near the place the forest is named after; a point in the middle of the forest. The coders' district is sometimes wrong, so a close match in a neighboring district can be the right answer.
+Rules: prefer the most specific place the text supports; a place the event happened in or at beats one it happened near; "under X Police Station limits", when the text names nothing more specific, is "limits" at the place the station is named after; "under X gram panchayat" is "near" the place the panchayat is named after; ignore places that belong to other incidents in the full entry. For an event in a forest, hill, or sanctuary, take the first that applies: a village or town the text places the event in or near; a point in the part of the forest within the jurisdiction the text names (police station, mandal, or block); near the place the forest is named after; a point in the middle of the forest. The coders' district is sometimes wrong, so a close match in a neighboring district can be the right answer.
 
 Give the option number and a one-sentence reason that cites the text."""
 

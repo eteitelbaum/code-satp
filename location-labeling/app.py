@@ -47,7 +47,7 @@ AREA = PRECISIONS[3]  # a point inside a forest, sanctuary, or hill (protocol ru
 LEGACY = {"village or town": "in a village or town"}  # earlier label values
 NAMED = ["yes", "no"]  # does the report name a place below the district for where it happened? (#17)
 CERTAINTY = ["sure", "probable", "guess"]  # how sure the label is the right place, apart from its size (#17)
-PLACE_TYPES = ["", "village", "town", "subdistrict", "district", "police station", "camp", "forest", "hill", "river", "road", "other"]  # "" until chosen
+PLACE_TYPES = ["", "village", "town", "subdistrict", "district", "police station", "panchayat", "camp", "forest", "hill", "river", "road", "other"]  # "" until chosen
 REASONS = ["", "hamlet", "local name", "area only", "camp", "not found", "other"]
 FOUND_VIA = ["suggestion", "shortlist", "search", "Google Maps", "OpenStreetMap", "SATP page", "pin"]
 SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
@@ -120,9 +120,15 @@ def load_satp():
     return satp
 
 
+def file_version(*paths):
+    """When the files last changed, so a cache reloads them after suggest.py runs again."""
+    return tuple(p.stat().st_mtime if p.exists() else 0 for p in paths)
+
+
 @st.cache_data
-def load_suggestions():
-    """Precomputed suggestions and the places extracted from each text (empty until suggest.py has run)."""
+def load_suggestions(version):
+    """Precomputed suggestions and the places extracted from each text (empty until suggest.py has run); `version`
+    is file_version(SUGGEST_FILE, MENTIONS_FILE)."""
     if not (SUGGEST_FILE.exists() and MENTIONS_FILE.exists()):
         return pd.DataFrame(columns=["incident_number", "rank", "model_pick"]), pd.DataFrame(columns=["incident_number", "matched", "role", "name"])
     sug = pd.read_csv(SUGGEST_FILE, dtype={"incident_number": str, "shrid2": str, "subdistrict_id": str})
@@ -208,15 +214,20 @@ def apply_suggestion(o):
             start_subdistrict(o.subdistrict_id, o.shrid2.split("-")[2],
                               bool(re.search(r"OpenStreetMap (hamlet|isolated|farm)", o.evidence)), "suggestion")
     else:
-        ps_limits = st.session_state.get(key("precision")) == PS_LIMITS  # keep it: the option gives the station's namesake
-        if not ps_limits:
+        # a "limits" option is the station's namesake (rule 2); after choosing police station limits, any place option is
+        ps_limits = o.relation == "limits" or st.session_state.get(key("precision")) == PS_LIMITS
+        if ps_limits:
+            st.session_state[key("precision")] = PS_LIMITS
+        else:
             st.session_state[key("precision")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
         st.session_state[key("choice")] = o.shrid2
         in_shrug = load_places().loc[lambda d: d.shrid2 == o.shrid2, "place_type"]
         town = (in_shrug == "town").any() or re.search(r"SHRUG (town|city)", o.evidence)
         # what the report names, as the model read it: "Baskatwa forest" is a forest named after a village
-        kinds = mentions.loc[(mentions.incident_number == iid) & (mentions["name"] == o.query), "kind"]
-        named_kind = next((k for k in kinds if k in ("forest", "hill", "camp", "river", "road", "police station")), "")
+        named = mentions[(mentions.incident_number == iid) & (mentions["name"] == o.query)]
+        panchayat = any(re.search(rf"{re.escape(o.query)}\W+(gram\W+)?panchayat", q, flags=re.I) for q in named["quote"])
+        named_kind = "panchayat" if panchayat else next(
+            (k for k in named["kind"] if k in ("forest", "hill", "camp", "river", "road", "police station")), "")
         st.session_state[key("type")] = "police station" if ps_limits else named_kind or ("town" if town else "village")
     st.rerun()
 
@@ -574,7 +585,7 @@ def next_unlabeled():
 sample = load_sample()
 labels = load_labels()
 satp = load_satp()
-suggestions, mentions = load_suggestions()
+suggestions, mentions = load_suggestions(file_version(SUGGEST_FILE, MENTIONS_FILE))
 done = set(labels.incident_number)
 
 with st.sidebar:
@@ -696,7 +707,7 @@ with left:
         # the radio is drawn further down, so on returning to a label its saved value stands in
         current = st.session_state.get(key("precision")) or (LEGACY.get(existing["precision"], existing["precision"])
                                                              if existing is not None else None)
-        implied = {"in": AT_PLACE[0], "near": AT_PLACE[1], "area": AREA, "subdistrict": "subdistrict"}
+        implied = {"in": AT_PLACE[0], "near": AT_PLACE[1], "limits": PS_LIMITS, "area": AREA, "subdistrict": "subdistrict"}
         for o in sug[sug["rank"] > 0].itertuples():
             if o.source == "OpenStreetMap" and o.relation in ("in", "near"):  # it sets only the map point
                 on = (st.session_state.get(key("suggestion")) == o.rank
@@ -717,15 +728,16 @@ with left:
             st.caption(f"**Why:** {o.why}  \n**Source:** {o.source_note}" if o.why else o.evidence)
         if sug[sug.model_pick]["rank"].eq(0).any():
             st.caption("The model picked none of these.")
-    # places the text puts the event in or near that the search did not find closely (SHRUG spelling below 0.92,
-    # nothing in OpenStreetMap); district and state names are never searched, and a matched subdistrict is found
+    # places the text puts the event in or near, and gram panchayats, that the search did not find closely (SHRUG
+    # spelling below 0.92, nothing in OpenStreetMap); district and state names are never searched, and a matched
+    # subdistrict is found
     weak = mentions[(mentions.incident_number == iid)
-                    & mentions.role.isin(["where it happened", "near where it happened"])
+                    & (mentions.role.isin(["where it happened", "near where it happened"]) | (mentions.kind == "gram panchayat"))
                     & ~mentions.kind.isin(["district", "state"])
                     & ~mentions.matched.str.contains("OpenStreetMap|subdistrict")].copy()
     weak["shrug"] = weak.matched.str.extract(r"SHRUG (\d\.\d+)")[0].astype(float).fillna(0)
     weak = weak[weak.shrug < 0.92]
-    osm_kinds = ["village", "town", "hamlet", "locality", "police station", "camp", "other", "forest", "hill"]
+    osm_kinds = ["village", "town", "hamlet", "locality", "police station", "gram panchayat", "camp", "other", "forest", "hill"]
     g = lambda m: (f"Look up {m.name} on [Google Maps]({google_maps(m.name)}) · "
                    f"[OpenStreetMap]({osm_map(m.name)})")
 
