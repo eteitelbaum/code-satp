@@ -38,7 +38,7 @@ LABELS_FILE = ROOT / "labels" / "labels.csv"
 LINKS_FILE = ROOT / "data" / "satp_links.csv"  # from link_satp.py
 ENTRIES_FILE = ROOT / "data" / "satp_entries.csv"  # from fetch_satp.py
 
-PS_LIMITS = "within police station limits"  # "under X Police Station limits": the place the station is in (rule 2)
+PS_LIMITS = "within police station limits"  # "under X Police Station limits": the place the station is named after (rule 2)
 PRECISIONS = ["in a village or town", "near a village or town", PS_LIMITS, "in a forest or area", "subdistrict", "district",
               "state or unknown"]
 AT_PLACE = PRECISIONS[:3]  # precisions that name a SHRUG place
@@ -171,7 +171,7 @@ def apply_suggestion(o):
         st.session_state[key("area_label")] = shown_as
         st.session_state[key("type")] = "hill" if re.search(r"OpenStreetMap (peak|hill|ridge)", o.evidence) else "forest"
     else:
-        ps_limits = st.session_state.get(key("precision")) == PS_LIMITS  # keep it: the option gives the station's place
+        ps_limits = st.session_state.get(key("precision")) == PS_LIMITS  # keep it: the option gives the station's namesake
         if not ps_limits:
             st.session_state[key("precision")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
         st.session_state[key("choice")] = o.shrid2
