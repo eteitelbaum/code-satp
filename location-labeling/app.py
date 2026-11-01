@@ -485,13 +485,20 @@ with st.sidebar:
     if "pos" not in st.session_state or st.session_state.get("pos_split") != split:
         st.session_state.pos = frontier
         st.session_state.pos_split = split
+    def go(pos):
+        """Leave this incident without saving: forget its form, so it reopens as saved."""
+        left_iid = queue.iloc[st.session_state.pos]["incident_number"]
+        for k in [k for k in st.session_state if str(k).endswith(f"_{left_iid}")]:
+            del st.session_state[k]
+        st.session_state.pos = pos
+
     c1, c2 = st.columns(2)
     if c1.button("◀ Previous", use_container_width=True, disabled=st.session_state.pos == 0):
-        st.session_state.pos -= 1
+        go(st.session_state.pos - 1)
     if c2.button("Next ▶", use_container_width=True, disabled=st.session_state.pos >= frontier):
-        st.session_state.pos += 1
+        go(st.session_state.pos + 1)
     if st.button("Back to the next unlabeled", use_container_width=True, disabled=st.session_state.pos == frontier):
-        st.session_state.pos = frontier
+        go(frontier)
     unsaved_note = st.empty()  # filled once the form is drawn
     with st.expander("Labeling protocol"):
         readme = (ROOT / "README.md").read_text()
