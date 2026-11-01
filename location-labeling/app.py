@@ -38,7 +38,7 @@ LABELS_FILE = ROOT / "labels" / "labels.csv"
 LINKS_FILE = ROOT / "data" / "satp_links.csv"  # from link_satp.py
 ENTRIES_FILE = ROOT / "data" / "satp_entries.csv"  # from fetch_satp.py
 
-PS_LIMITS = "within police station limits"  # "under X Police Station limits": the place the station is named after (rule 2)
+PS_LIMITS = "within police station limits"  # "under X Police Station limits": the place the station is in (rule 2)
 PRECISIONS = ["in a village or town", "near a village or town", PS_LIMITS, "in a forest or area", "subdistrict", "district",
               "state or unknown"]
 AT_PLACE = PRECISIONS[:3]  # precisions that name a SHRUG place
@@ -717,7 +717,8 @@ with left:
             st.rerun()
     if located := st.session_state.get(key("located")):
         lat, lon, how = located
-        here = all_places[all_places.shrid2 == st.session_state[key("choice")]]
+        in_place = unit_at(inc["state_id"], lat, lon)[0] if lat is not None else None  # where the point falls, not the selection
+        here = all_places[all_places.shrid2 == (in_place or st.session_state[key("choice")])]
         if lat is None:
             st.warning(f"Locate: {how}.")
         elif here.empty:
