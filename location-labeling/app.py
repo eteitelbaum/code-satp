@@ -29,6 +29,7 @@ SAMPLE_FILE = ROOT / "data" / "sample.csv"
 PLACES_FILE = ROOT / "data" / "places.parquet"
 SHAPES_FILE = ROOT / "data" / "place_shapes.parquet"
 AREAS_FILE = ROOT / "data" / "osm_areas.parquet"
+OSM_FILE = ROOT / "data" / "osm_places.parquet"  # from build_osm.py
 SUBDIST_FILE = ROOT / "data" / "subdistrict_shapes.parquet"
 SUGGEST_FILE = ROOT / "data" / "suggestions.csv"  # from suggest.py
 MENTIONS_FILE = ROOT / "data" / "mentions.csv"
@@ -333,6 +334,28 @@ def collapse_towns(df, groups):
     whole["place_type"] = "town"
     whole["label"] = whole["name"].map(lambda n: f"{n}{' [' + ', '.join(ALIASES[n]) + ']' if n in ALIASES else ''} (town) · whole town, {groups[n]} subdistrict parts")
     return pd.concat([whole, df[~split]]).sort_values("score", ascending=False, kind="stable")
+
+
+@st.cache_data
+def osm_settlements(state_id):
+    """OpenStreetMap's hamlets, localities, and other settlements in a state, under names other than the SHRUG
+    place they fall in (so "Sasang" in Maipa is listed; OpenStreetMap's copy of a SHRUG village is not)."""
+    if not OSM_FILE.exists():
+        return pd.DataFrame(columns=["osm_id", "kind", "primary", "name", "lat", "lon", "district_id", "shrid2", "key"])
+    osm = pd.read_parquet(OSM_FILE, filters=[("state_id", "==", state_id)])
+    osm = osm[~osm["kind"].isin(["forest", "protected area", "peak", "hill", "ridge", "valley"]) & osm["shrid2"].notna()]
+    osm["key"] = osm["name"].map(norm)
+    shrug_keys = load_places().set_index("shrid2")["key"]
+    return osm[osm["key"] != osm["shrid2"].map(shrug_keys)].reset_index(drop=True)
+
+
+def pick_osm_place(r):
+    """Select an OpenStreetMap place found by the search: its point, in the SHRUG place it falls in (protocol rule 5)."""
+    st.session_state[key("coords")] = st.session_state[key("coords_done")] = f"{r['lat']}, {r['lon']}"
+    st.session_state[key("located")] = (r["lat"], r["lon"], "an OpenStreetMap point")
+    st.session_state[key("located_shrid")] = r["shrid2"]
+    st.session_state[key("located_source")] = "OpenStreetMap"
+    pick_place(r["shrid2"], members(load_places(), r["shrid2"]), "search")
 
 
 def members(pool, choice):
@@ -664,8 +687,9 @@ with left:
     labels_by_shrid = dict(zip(pool["shrid2"], pool["label"] + ("" if not widen else ", " + pool["district_name"].str.title() + " district")))
     labels_by_shrid.update(whole_towns)
     find = st.text_input("Find a place" + (" in the state" if widen else " in the district"), key=key("lookup"),
-                         placeholder="a village, town, or subdistrict; the spelling can be approximate",
-                         help="Lists SHRUG villages, towns, and subdistricts by spelling similarity (1.00 = same spelling), and "
+                         placeholder="a village, town, hamlet, or subdistrict; the spelling can be approximate",
+                         help="Lists SHRUG villages, towns, and subdistricts, and OpenStreetMap hamlets and localities that "
+                              "SHRUG does not list, by spelling similarity (1.00 = same spelling), and "
                               "names that begin with what you type. A close spelling may or may not be the same place: "
                               "check on a map before choosing.")
     if len(q := norm(find)) >= 2:
@@ -684,16 +708,36 @@ with left:
             if sim >= 0.8:
                 results.append((sim, f"sub:{r['subdistrict_id']}", f"{r['subdistrict_name'].title()} (subdistrict) · "
                                 f"{r['district_name'].title()} district"))
+        # OpenStreetMap hamlets and localities that SHRUG does not list under their own name
+        osm = osm_settlements(inc["state_id"])
+        osm = osm if widen else osm[osm["district_id"] == inc["district_id_2011"]]
+        osm = osm.assign(sim=[max(score(k), 0.9 if k.startswith(q) else 0) for k in osm["key"]])
+        osm = osm[osm["sim"] >= 0.8].sort_values("sim", ascending=False).drop_duplicates("osm_id").head(5)
+        shrug_by_id = all_places.set_index("shrid2")
+        osm_by_id = {f"osm:{r['osm_id']}": r for _, r in osm.iterrows() if r["shrid2"] in shrug_by_id.index}
+        for pick, r in osm_by_id.items():
+            inside = shrug_by_id.loc[r["shrid2"]]
+            also = f" [{r['primary']}]" if r["primary"] != r["name"] else ""
+            results.append((r["sim"], pick, f"{r['name']}{also} (OpenStreetMap {r['kind']}) · in {inside['name']} "
+                                            f"{inside['place_type']}, {str(inside['subdistrict_name']).title()} subdistrict"))
         precision_now = st.session_state.get(key("precision"))
         # most similar first; a village and the subdistrict named after it, village first
         for sim, pick, label in sorted(results, key=lambda r: (-r[0], r[1].startswith("sub:")))[:10]:
             sub_id = pick[4:] if pick.startswith("sub:") else ""
-            is_on = (precision_now == "subdistrict" and st.session_state.get(key("subdistrict")) == sub_id) if sub_id else (
-                st.session_state[key("choice")] == pick)
+            o = osm_by_id.get(pick)
+            if sub_id:
+                is_on = precision_now == "subdistrict" and st.session_state.get(key("subdistrict")) == sub_id
+            elif o is not None:  # its point is the one set
+                is_on = (st.session_state.get(key("located_source")) == "OpenStreetMap"
+                         and st.session_state.get(key("coords_done")) == f"{o['lat']}, {o['lon']}")
+            else:
+                is_on = st.session_state[key("choice")] == pick
             if st.button(f"{'● ' if is_on else ''}{label} · spelling match {sim:.2f}", key=key(f"l_{pick}"),
                          type="primary" if is_on else "secondary"):
                 if sub_id:
                     pick_subdistrict(sub_id, subs_here.set_index("subdistrict_id").at[sub_id, "district_id"])
+                elif o is not None:
+                    pick_osm_place(o)
                 else:
                     pick_place(pick, members(pool, pick), "search")
 
