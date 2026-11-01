@@ -47,7 +47,7 @@ AREA = PRECISIONS[3]  # a point inside a forest, sanctuary, or hill (protocol ru
 LEGACY = {"village or town": "in a village or town"}  # earlier label values
 NAMED = ["yes", "no"]  # does the report name a place below the district for where it happened? (#17)
 CERTAINTY = ["sure", "probable", "guess"]  # how sure the label is the right place, apart from its size (#17)
-PLACE_TYPES = ["", "village", "town", "subdistrict", "police station", "camp", "forest", "hill", "river", "road", "other"]  # "" until chosen
+PLACE_TYPES = ["", "village", "town", "subdistrict", "district", "police station", "camp", "forest", "hill", "river", "road", "other"]  # "" until chosen
 REASONS = ["", "hamlet", "local name", "area only", "camp", "not found", "other"]
 FOUND_VIA = ["suggestion", "shortlist", "search", "Google Maps", "OpenStreetMap", "SATP page", "pin"]
 SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
@@ -240,7 +240,8 @@ def pick_district():
         for k in ("coords_done", "located", "located_shrid", "located_source"):
             st.session_state.pop(key(k), None)
         st.session_state[key("coords")] = ""
-    st.session_state[key("type")] = "other"
+    st.session_state[key("type")] = "district"
+    st.session_state[key("reason")] = ""
 
 
 def named_changed():
