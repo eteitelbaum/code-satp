@@ -52,6 +52,9 @@ REASONS = ["", "hamlet", "local name", "area only", "camp", "not found", "other"
 FOUND_VIA = ["suggestion", "shortlist", "search", "Google Maps", "OpenStreetMap", "SATP page", "pin"]
 SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
 HAMLETS = {"hamlet", "isolated_dwelling", "farm"}  # OpenStreetMap settlement kinds that SHRUG folds into a village
+NOT_SETTLEMENTS = ["forest", "protected area", "peak", "hill", "ridge", "valley"]  # OpenStreetMap kinds that are not places people live
+NAMESAKE_KM = 5  # how far OpenStreetMap's point for a SHRUG place can be from SHRUG's location
+POINT_DECIDED = [*AT_PLACE, "subdistrict"]  # labels that need a map point of their own, or "no better point", to save
 POINT_KEYS = ("coords_done", "located", "located_source", "point_suggestion", "area_osm")  # the map point's state
 LABEL_COLUMNS = [
     "incident_number", "split", "order", "named_below_district", "precision", "certainty", "shrid2", "place_name", "subdistrict_id",
@@ -366,10 +369,42 @@ def osm_settlements(state_id):
     if not OSM_FILE.exists():
         return pd.DataFrame(columns=["osm_id", "kind", "primary", "name", "lat", "lon", "district_id", "shrid2", "key"])
     osm = pd.read_parquet(OSM_FILE, filters=[("state_id", "==", state_id)])
-    osm = osm[~osm["kind"].isin(["forest", "protected area", "peak", "hill", "ridge", "valley"]) & osm["shrid2"].notna()]
+    osm = osm[~osm["kind"].isin(NOT_SETTLEMENTS) & osm["shrid2"].notna()]
     osm["key"] = osm["name"].map(norm)
     shrug_keys = load_places().set_index("shrid2")["key"]
     return osm[osm["key"] != osm["shrid2"].map(shrug_keys)].reset_index(drop=True)
+
+
+@st.cache_data
+def osm_namesakes(state_id):
+    """OpenStreetMap's settlements in a state, one row per name, including its copies of SHRUG villages and towns."""
+    if not OSM_FILE.exists():
+        return pd.DataFrame(columns=["osm_id", "lat", "lon", "key"])
+    osm = pd.read_parquet(OSM_FILE, filters=[("state_id", "==", state_id)])
+    osm = osm[~osm["kind"].isin(NOT_SETTLEMENTS)].assign(key=lambda d: d["name"].map(norm))
+    return osm.drop_duplicates(["osm_id", "key"])[["osm_id", "lat", "lon", "key"]].reset_index(drop=True)
+
+
+def osm_point_for(rows):
+    """OpenStreetMap's point for a chosen SHRUG place: the nearest settlement with the same name within NAMESAKE_KM of
+    SHRUG's location, as (lat, lon, km from SHRUG's location), or None."""
+    name_key, lat, lon = rows["key"].iloc[0], rows["lat"].mean(), rows["lon"].mean()
+    if not name_key:
+        return None
+    osm = osm_namesakes(inc["state_id"])
+    osm = osm[osm["key"] == name_key]
+    if osm.empty:
+        return None
+    km = ((osm["lat"] - lat) * 111.32) ** 2 + ((osm["lon"] - lon) * 111.32 * math.cos(math.radians(lat))) ** 2
+    best = km.idxmin()
+    return (osm.at[best, "lat"], osm.at[best, "lon"], km[best] ** 0.5) if km[best] ** 0.5 <= NAMESAKE_KM else None
+
+
+def use_osm_point(lat, lon, name):
+    """Button callback: OpenStreetMap's point for the chosen place becomes the map point; the place stays."""
+    for k in ("point_suggestion", "area_osm"):
+        st.session_state.pop(key(k), None)
+    set_point(lat, lon, f"OpenStreetMap's point for {name}")
 
 
 def pick_osm_place(r):
@@ -830,6 +865,21 @@ with left:
             _, how = locate(inc["state_id"], *parsed)
             st.session_state[key("located")] = (*parsed, how)
             st.rerun()
+    # OpenStreetMap's point for the chosen village or town, offered, not set: a third of them fall in another
+    # SHRUG village (boundary_checks.py)
+    chosen = members(pool, st.session_state[key("choice")]) if st.session_state.get(key("choice")) else pool.iloc[0:0]
+    # the radio below is not drawn yet on a reopened label's first showing; fall back to the saved answer
+    saved_precision = LEGACY.get(existing["precision"], existing["precision"]) if existing is not None else None
+    precision_now = st.session_state.get(key("precision")) or saved_precision
+    if precision_now in AT_PLACE and not chosen.empty:
+        if (namesake := osm_point_for(chosen)) and st.session_state.get(key("coords_done")) != f"{namesake[0]}, {namesake[1]}":
+            name = chosen["name"].iloc[0]
+            st.button(f"Use OpenStreetMap's point for {name} ({namesake[2]:.1f} km from SHRUG's location)",
+                      key=key("use_osm_point"), on_click=use_osm_point, args=(namesake[0], namesake[1], name))
+    # no point of your own: say so before saving, so the step is not missed
+    if precision_now in POINT_DECIDED and not (st.session_state.get(key("located")) or (None,))[0]:
+        st.checkbox("No better point: use SHRUG's location" if precision_now in AT_PLACE
+                    else "No point: nothing below the subdistrict can be found", key=key("no_point"))
     if located := st.session_state.get(key("located")):
         lat, lon, how = located
         in_place = unit_at(inc["state_id"], lat, lon)[0] if lat is not None else None  # where the point falls, not the selection
@@ -919,6 +969,10 @@ with right:
     precision = st.radio("Where did it happen?", PRECISIONS, key=key("precision"),
                          index=first_index(key("precision"), PRECISIONS, saved_where), horizontal=True,
                          on_change=precision_changed)
+    st.caption("**In** or **near** a village or town whenever the report names one; if it happened in a forest, on a hill, "
+               "or at a camp beside it, keep the village or town and set the place type below. **Within police station "
+               "limits** only for \"under X police station\" with nothing more specific (rule 2). **In a forest or area** "
+               "only when no village or town is named (rules 4.2, 4.4).")
     chosen = members(pool, choice) if choice else pool.iloc[0:0]
     subdistrict_id = chosen["subdistrict_id"].iloc[0] if chosen["subdistrict_id"].nunique() == 1 else ""
     # the district the label falls in: the selected place's, which can differ from the coded one
@@ -1104,6 +1158,8 @@ with right:
             st.error("Choose the subdistrict.")
         elif precision == AREA and not point:
             st.error("Pick a forest suggestion, or paste a point in the forest under Map point.")
+        elif precision in POINT_DECIDED and point_source in ("", "SHRUG place") and not st.session_state.get(key("no_point")):
+            st.error("Choose a map point: use OpenStreetMap's point, paste one, or tick the box under Map point.")
         else:
             save_label({**form, "labeled_at": datetime.now().isoformat(timespec="seconds")})
             next_unlabeled()

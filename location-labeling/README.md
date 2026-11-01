@@ -81,7 +81,7 @@ What to record:
 - **Place type:** what the place in the report is (village, town, subdistrict, district, police station, camp, forest, hill, river, road, other); for a subdistrict or district label, the place the report names, such as the forest that cannot be placed, or "district" when it names nothing below the district
 - **Reason**, if coarser than a village or town: hamlet, local name, area only, camp, not found, other
 - **How you found it:** suggestion, shortlist, search, Google Maps, OpenStreetMap, SATP page, pin
-- **Map point:** for mapping only; it never sets the place (except a forest point, rule 6). An OpenStreetMap point or coordinates pasted from Google Maps or OpenStreetMap for the place the report names; else SHRUG's location for the chosen place; none if the place cannot be found.
+- **Map point:** for mapping only; it never sets the place (except a forest point, rule 6). An OpenStreetMap point or coordinates pasted from Google Maps or OpenStreetMap for the place the report names; else SHRUG's location for the chosen place; none if the place cannot be found. When OpenStreetMap has a settlement with the chosen village's or town's name within 5 km, the app offers its point (**Use OpenStreetMap's point**); look at it on the map before using it, since about a third of OpenStreetMap's village points fall in a neighboring SHRUG village (#26). To save a village, town, or subdistrict label, set a point or tick **No better point** (for a subdistrict, **No point**).
 
 ## Sources
 
