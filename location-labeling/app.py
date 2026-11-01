@@ -51,11 +51,14 @@ PLACE_TYPES = ["", "village", "town", "subdistrict", "district", "police station
 REASONS = ["", "hamlet", "local name", "area only", "camp", "not found", "other"]
 FOUND_VIA = ["suggestion", "shortlist", "search", "Google Maps", "OpenStreetMap", "SATP page", "pin"]
 SKIP_REASONS = ["", "not a single incident", "text does not describe the coded event", "other (say why in the notes)"]
+HAMLETS = {"hamlet", "isolated_dwelling", "farm"}  # OpenStreetMap settlement kinds that SHRUG folds into a village
+POINT_KEYS = ("coords_done", "located", "located_source", "point_suggestion", "area_osm")  # the map point's state
 LABEL_COLUMNS = [
     "incident_number", "split", "order", "named_below_district", "precision", "certainty", "shrid2", "place_name", "subdistrict_id",
     "subdistrict_name", "state_id", "district_id_2011", "place_type", "reason", "found_via",
     "preselected", "preselect_source", "confirmed", "pin_consulted", "located_lat", "located_lon", "located_match",
-    "point_lat", "point_lon", "point_source", "unit_type", "unit_id", "unit_name", "suggestion_rank", "model_pick_rank",
+    "point_lat", "point_lon", "point_source", "point_shrid2", "point_place_name", "point_subdistrict", "point_km", "area_osm_id",
+    "unit_type", "unit_id", "unit_name", "suggestion_rank", "model_pick_rank",
     "suggestion_run", "summary_cut_off", "skip_reason", "notes", "labeler", "labeled_at",
 ]
 
@@ -149,15 +152,38 @@ def google_maps(name, lat=None, lon=None):
     return "https://www.google.com/maps/search/" + quote_plus(f"{name}, {inc['district']}, {inc['state']}, India")
 
 
+def set_point(lat, lon, how, source="OpenStreetMap"):
+    """Set the map point. It never changes the place, which is chosen by name (protocol rule 6)."""
+    st.session_state[key("coords")] = st.session_state[key("coords_done")] = f"{lat}, {lon}"
+    st.session_state[key("located")] = (lat, lon, how)
+    st.session_state[key("located_source")] = source
+
+
+def drop_point():
+    """Forget the map point (the place stays); only before the coordinates box is drawn."""
+    for k in POINT_KEYS:
+        st.session_state.pop(key(k), None)
+    st.session_state[key("coords")] = ""
+
+
+def start_subdistrict(subdistrict_id, district_id, hamlet, via):
+    """An OpenStreetMap point with no place chosen yet: start the label as the subdistrict the point falls in. The
+    labeler can still choose a village or town the report names (protocol rule 5)."""
+    if hamlet:
+        st.session_state[key("reason")] = "hamlet"
+    p = load_places()
+    if ((p.state_id == inc["state_id"]) & (p.district_id == district_id) & (p.subdistrict_id == subdistrict_id)).any():
+        pick_subdistrict(subdistrict_id, district_id, "village" if hamlet else "", via)
+    st.rerun()
+
+
 def apply_suggestion(o):
-    """Fill the label from a suggestion: the place (or OpenStreetMap point), in or near, or the subdistrict."""
+    """Fill the label from a suggestion: the place, in or near; an OpenStreetMap point; or the subdistrict."""
     st.session_state[key("suggestion")] = int(o.rank)
     st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {"suggestion"}, key=FOUND_VIA.index)
     st.session_state[key("named")] = "yes"  # every option is a place below the district
-    if o.source != "OpenStreetMap" and st.session_state.get(key("located_source")) == "OpenStreetMap":
-        for k in ("coords_done", "located", "located_shrid", "located_source"):  # a point set by an earlier suggestion
-            st.session_state.pop(key(k), None)
-        st.session_state[key("coords")] = ""
+    if o.source != "OpenStreetMap" and st.session_state.get(key("point_suggestion")):
+        drop_point()  # a point set by an earlier suggestion, not one you chose
     if o.relation == "subdistrict":
         st.session_state[key("precision")] = "subdistrict"
         st.session_state[key("subdistrict")] = o.subdistrict_id
@@ -165,32 +191,30 @@ def apply_suggestion(o):
     elif o.relation == "area":  # a point inside a forest, sanctuary, or hill
         st.session_state[key("precision")] = AREA
         st.session_state[key("choice")] = ""
-        st.session_state[key("coords")] = st.session_state[key("coords_done")] = f"{o.lat}, {o.lon}"
         shown_as = o.label or f"A point in {o.name}"
-        st.session_state[key("located")] = (o.lat, o.lon, shown_as[0].lower() + shown_as[1:] + " (OpenStreetMap)")
-        st.session_state[key("located_shrid")] = ""
-        st.session_state[key("located_source")] = "OpenStreetMap"
+        set_point(o.lat, o.lon, shown_as[0].lower() + shown_as[1:] + " (OpenStreetMap)")
+        st.session_state[key("point_suggestion")] = int(o.rank)
+        st.session_state[key("area_osm")] = o.osm_id  # the forest's outline, for analysis
         st.session_state[key("area_name")] = o.name  # saved as the place name
         st.session_state[key("area_label")] = shown_as
         st.session_state[key("type")] = "hill" if re.search(r"OpenStreetMap (peak|hill|ridge)", o.evidence) else "forest"
+    elif o.source == "OpenStreetMap":  # a settlement SHRUG does not list under this name: the map point only (rule 5)
+        set_point(o.lat, o.lon, "an OpenStreetMap point")
+        st.session_state[key("point_suggestion")] = int(o.rank)
+        if not (st.session_state.get(key("precision")) in AT_PLACE and st.session_state.get(key("choice"))):
+            start_subdistrict(o.subdistrict_id, o.shrid2.split("-")[2],
+                              bool(re.search(r"OpenStreetMap (hamlet|isolated|farm)", o.evidence)), "suggestion")
     else:
         ps_limits = st.session_state.get(key("precision")) == PS_LIMITS  # keep it: the option gives the station's namesake
         if not ps_limits:
             st.session_state[key("precision")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
         st.session_state[key("choice")] = o.shrid2
-        # town when the place, or the SHRUG place an OpenStreetMap point falls in, is a town
         in_shrug = load_places().loc[lambda d: d.shrid2 == o.shrid2, "place_type"]
-        town = (in_shrug == "town").any() or re.search(r"(SHRUG|OpenStreetMap) (town|city)", o.evidence)
+        town = (in_shrug == "town").any() or re.search(r"SHRUG (town|city)", o.evidence)
         # what the report names, as the model read it: "Baskatwa forest" is a forest named after a village
         kinds = mentions.loc[(mentions.incident_number == iid) & (mentions["name"] == o.query), "kind"]
         named_kind = next((k for k in kinds if k in ("forest", "hill", "camp", "river", "road", "police station")), "")
         st.session_state[key("type")] = "police station" if ps_limits else named_kind or ("town" if town else "village")
-        if o.source == "OpenStreetMap":
-            coords = f"{o.lat}, {o.lon}"
-            st.session_state[key("coords")] = st.session_state[key("coords_done")] = coords
-            st.session_state[key("located")] = (o.lat, o.lon, "an OpenStreetMap point")
-            st.session_state[key("located_shrid")] = o.shrid2
-            st.session_state[key("located_source")] = "OpenStreetMap"
     st.rerun()
 
 
@@ -214,14 +238,14 @@ def pick_place(choice, rows, via):
     st.rerun()
 
 
-def pick_subdistrict(subdistrict_id, district_id):
+def pick_subdistrict(subdistrict_id, district_id, place_type="", via="search"):
     """Label a subdistrict found by the search, which may lie in another district."""
     st.session_state[key("named")] = "yes"
     st.session_state[key("precision")] = "subdistrict"
     st.session_state[key("subdistrict")] = subdistrict_id
     st.session_state[key("sub_district")] = district_id  # so the subdistrict list includes its district
-    st.session_state[key("type")] = ""
-    st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {"search"}, key=FOUND_VIA.index)
+    st.session_state[key("type")] = place_type
+    st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {via}, key=FOUND_VIA.index)
     st.rerun()
 
 
@@ -237,9 +261,7 @@ def pick_district():
     st.session_state[key("precision")] = "district"
     st.session_state[key("choice")] = ""
     if st.session_state.get(key("located_source")) == "OpenStreetMap":
-        for k in ("coords_done", "located", "located_shrid", "located_source"):
-            st.session_state.pop(key(k), None)
-        st.session_state[key("coords")] = ""
+        drop_point()
     st.session_state[key("type")] = "district"
     st.session_state[key("reason")] = ""
 
@@ -351,12 +373,14 @@ def osm_settlements(state_id):
 
 
 def pick_osm_place(r):
-    """Select an OpenStreetMap place found by the search: its point, in the SHRUG place it falls in (protocol rule 5)."""
-    st.session_state[key("coords")] = st.session_state[key("coords_done")] = f"{r['lat']}, {r['lon']}"
-    st.session_state[key("located")] = (r["lat"], r["lon"], "an OpenStreetMap point")
-    st.session_state[key("located_shrid")] = r["shrid2"]
-    st.session_state[key("located_source")] = "OpenStreetMap"
-    pick_place(r["shrid2"], members(load_places(), r["shrid2"]), "search")
+    """Set an OpenStreetMap place found by the search as the map point. The place is chosen by name (protocol rule 5):
+    a village or town already selected stays; otherwise the label starts as the subdistrict the point falls in."""
+    set_point(r["lat"], r["lon"], "an OpenStreetMap point")
+    st.session_state[key("named")] = "yes"
+    st.session_state[key("via")] = sorted(set(st.session_state.get(key("via"), [])) | {"search"}, key=FOUND_VIA.index)
+    if st.session_state.get(key("precision")) in AT_PLACE and st.session_state.get(key("choice")):
+        st.rerun()
+    start_subdistrict(r["subdistrict_id"], r["district_id"], r["kind"] in HAMLETS, "search")
 
 
 def members(pool, choice):
@@ -444,6 +468,32 @@ def unit_at(state_id, lat, lon):
     subs, tree = state_subdistricts(state_id)
     inside = tree.query(point, predicate="intersects")
     return None, (subs[inside[0]] if len(inside) else None)
+
+
+def point_units(state_id, lat, lon):
+    """Where a map point falls, saved for analysis: the SHRUG village or town (shrid2, or "") and the subdistrict
+    ("state-district-subdistrict", or "")."""
+    in_place, in_sub = unit_at(state_id, lat, lon)
+    if in_place:
+        _, s, d, sd, _ = in_place.split("-")
+        return in_place, f"{s}-{d}-{sd}"
+    return "", (f"{state_id}-{in_sub['district_id']}-{in_sub['subdistrict_id']}" if in_sub else "")
+
+
+@st.cache_resource
+def shape_positions(state_id):
+    """Each SHRUG place's position in state_shapes."""
+    return {s: i for i, s in enumerate(state_shapes(state_id)[0])}
+
+
+def place_km(state_id, shrids, lat, lon):
+    """About how far, in km, a point is from the nearest of the given SHRUG places (0 inside); None if not found."""
+    _, geoms, _ = state_shapes(state_id)
+    pos = shape_positions(state_id)
+    found = [geoms[pos[s]] for s in shrids if s in pos]
+    if not found:
+        return None
+    return min(shapely.distance(g, shapely.Point(lon, lat)) for g in found) * 111
 
 
 def preselect(inc, places):
@@ -558,6 +608,10 @@ if key("choice") not in st.session_state:
         if existing["located_lat"]:  # show the saved point without re-running the lookup
             st.session_state[key("coords_done")] = f"{existing['located_lat']}, {existing['located_lon']}"
             st.session_state[key("located")] = (float(existing["located_lat"]), float(existing["located_lon"]), existing["located_match"])
+            if existing["point_source"] == "OpenStreetMap":  # so saving again keeps the point's source
+                st.session_state[key("located_source")] = "OpenStreetMap"
+            if existing["area_osm_id"]:
+                st.session_state[key("area_osm")] = existing["area_osm_id"]
         if str(existing["suggestion_rank"]).isdigit():  # highlight the option the label matched
             st.session_state[key("suggestion")] = int(existing["suggestion_rank"])
     else:
@@ -609,9 +663,13 @@ with left:
                                                              if existing is not None else None)
         implied = {"in": AT_PLACE[0], "near": AT_PLACE[1], "area": AREA, "subdistrict": "subdistrict"}
         for o in sug[sug["rank"] > 0].itertuples():
-            on = (st.session_state.get(key("suggestion")) == o.rank
-                  and (current == implied.get(o.relation) or (current == PS_LIMITS and o.relation in ("in", "near")))
-                  and (o.relation in ("area", "subdistrict") or st.session_state[key("choice")] == o.shrid2))
+            if o.source == "OpenStreetMap" and o.relation in ("in", "near"):  # it sets only the map point
+                on = (st.session_state.get(key("suggestion")) == o.rank
+                      and st.session_state.get(key("coords_done")) == f"{o.lat}, {o.lon}")
+            else:
+                on = (st.session_state.get(key("suggestion")) == o.rank
+                      and (current == implied.get(o.relation) or (current == PS_LIMITS and o.relation in ("in", "near")))
+                      and (o.relation in ("area", "subdistrict") or st.session_state[key("choice")] == o.shrid2))
             mark = " ★ model's pick" if o.model_pick else ""
             c_opt, c_g, c_o = st.columns([6, 1, 1], vertical_alignment="center")
             title = o.label or f"{o.relation} {o.name} · {o.source}"
@@ -744,18 +802,17 @@ with left:
 
     saved_coords = f"{existing['located_lat']}, {existing['located_lon']}" if existing is not None and existing["located_lat"] else ""
     def clear_point(reset_box=True):
-        """Forget the pasted point, and the place it selected."""
-        if st.session_state.get(key("choice")) == st.session_state.get(key("located_shrid")):
-            st.session_state[key("choice")] = ""
-        for k in ("coords_done", "located", "located_shrid", "located_source"):
-            st.session_state.pop(key(k), None)
+        """Forget the map point; the place stays."""
         if reset_box:  # only from the button's callback, before the box is drawn
-            st.session_state[key("coords")] = ""
+            drop_point()
+        else:
+            for k in POINT_KEYS:
+                st.session_state.pop(key(k), None)
 
     if key("coords") not in st.session_state:
         st.session_state[key("coords")] = saved_coords
     c_in, c_clear = st.columns([5, 1], vertical_alignment="bottom")
-    coords = c_in.text_input("Locate by coordinates", key=key("coords"),
+    coords = c_in.text_input("Map point", key=key("coords"),
                              placeholder="e.g. 17.3260, 78.5550",
                              help="In Google Maps, right-click the spot and click the coordinates at the top of the menu to copy them; paste here.")
     c_clear.button("Clear", key=key("clear_point"), on_click=clear_point, use_container_width=True)
@@ -764,16 +821,14 @@ with left:
         st.rerun()
     if coords and coords != st.session_state.get(key("coords_done")):
         st.session_state[key("coords_done")] = coords
-        st.session_state.pop(key("located_source"), None)  # a pasted point is yours
+        for k in ("located_source", "point_suggestion", "area_osm"):  # a pasted point is yours
+            st.session_state.pop(key(k), None)
         parsed = parse_coords(coords)
         if parsed is None:
             st.session_state[key("located")] = (None, None, "could not read coordinates in India")
-        else:
-            shrid, how = locate(inc["state_id"], *parsed)
+        else:  # the map point only: the place is chosen by name (protocol rule 6)
+            _, how = locate(inc["state_id"], *parsed)
             st.session_state[key("located")] = (*parsed, how)
-            st.session_state[key("located_shrid")] = shrid
-            if shrid:
-                st.session_state[key("choice")] = shrid
             st.rerun()
     if located := st.session_state.get(key("located")):
         lat, lon, how = located
@@ -786,7 +841,7 @@ with left:
         else:
             row = here.iloc[0]
             note = "" if row["district_id"] == inc["district_id_2011"] else f" (in {row['district_name'].title()} district, not the coded one)"
-            st.success(f"Point is {how}: {row['label']}{note}")
+            st.success(f"Map point is {how}: {row['label']}{note}")
 
 with right:
     if inc["latitude"]:
@@ -912,7 +967,7 @@ with right:
                               "place on weak evidence. Say why in the notes unless sure.")
     notes = st.text_input("Notes", key=key("notes"), value=default("notes", ""))
 
-    # point for mapping and unit for analysis (protocol rule 6)
+    # map point and unit for analysis; neither sets the other (protocol rule 6)
     loc = st.session_state.get(key("located"))
     point, point_source = None, ""
     if loc and loc[0] is not None:
@@ -920,21 +975,27 @@ with right:
     elif precision in AT_PLACE and len(chosen):
         point, point_source = (chosen["lat"].mean(), chosen["lon"].mean()), "SHRUG place"
     sub_lookup = all_places.drop_duplicates(["district_id", "subdistrict_id"]).set_index(["district_id", "subdistrict_id"])["subdistrict_name"]
+    sub_title = lambda sid: str(sub_lookup.get(tuple(sid.split("-")[1:]), "")).title()  # "state-district-subdistrict"
+    # where the point falls, saved for analysis; it sets the unit only for a point in a forest (rules 4.2, 4.4)
+    point_shrid, point_sub = point_units(inc["state_id"], *point) if point else ("", "")
+    point_name = all_places.loc[all_places.shrid2 == point_shrid, "name"].iloc[0] if point_shrid else ""
+    point_km = ""
+    if point and point_source != "SHRUG place" and precision in AT_PLACE and len(chosen):
+        km = place_km(inc["state_id"], chosen["shrid2"], *point)
+        if km is not None:
+            point_km = f"{km:.2f}"
+            if km > 2:
+                st.warning(f"The map point is {km:.1f} km from {chosen['name'].iloc[0]}: check that they are the same place.")
     unit_type = unit_id = unit_name = ""
-    if precision in AT_PLACE and point_source == "SHRUG place":
+    if precision in AT_PLACE and len(chosen):
         unit_type, unit_id, unit_name = chosen["place_type"].iloc[0], "|".join(chosen["shrid2"]), chosen["name"].iloc[0]
-    elif (precision in AT_PLACE or precision == AREA) and point:
-        in_place, in_sub = unit_at(inc["state_id"], *point)
-        if in_place:
-            here = all_places[all_places.shrid2 == in_place]
-            unit_type, unit_id = "village or town", in_place
-            if len(here):
-                unit_type, unit_name = here["place_type"].iloc[0], here["name"].iloc[0]
-            if precision in AT_PLACE and len(chosen) and in_place not in set(chosen["shrid2"]):
-                st.warning(f"Your point falls in {unit_name or in_place}, not the selected place; the unit follows the point.")
-        elif in_sub:
-            unit_type, unit_id = "subdistrict", f"{inc['state_id']}-{in_sub['district_id']}-{in_sub['subdistrict_id']}"
-            unit_name = str(sub_lookup.get((in_sub["district_id"], in_sub["subdistrict_id"]), "")).title()
+    elif precision == AREA and point:
+        if point_shrid:
+            here = all_places[all_places.shrid2 == point_shrid]
+            unit_type = here["place_type"].iloc[0] if len(here) else "village or town"
+            unit_id, unit_name = point_shrid, point_name
+        elif point_sub:
+            unit_type, unit_id, unit_name = "subdistrict", point_sub, sub_title(point_sub)
     elif precision == "subdistrict" and subdistrict_id:
         unit_type, unit_id = "subdistrict", f"{inc['state_id']}-{district_id}-{subdistrict_id}"
         unit_name = str(sub_lookup.get((district_id, subdistrict_id), "")).title()
@@ -945,8 +1006,13 @@ with right:
         unit_type, unit_id = "state", inc["state_id"]
     if unit_type:
         where = f"{point[0]:.4f}, {point[1]:.4f} ({point_source})" if point else "none"
-        st.caption(f"Saved as: point {where} · unit for analysis: {unit_name or unit_id} ({unit_type})"
-                   + (" · the point is outside every village" if unit_type == "subdistrict" and point else ""))
+        falls = ""
+        if precision == AREA:  # the unit came from the point
+            falls = " · the point is outside every village" if unit_type == "subdistrict" else ""
+        elif point and point_source != "SHRUG place" and unit_id != point_shrid:
+            falls = f" · the point falls in {point_name or sub_title(point_sub) + ' subdistrict, outside every village'}"
+        st.caption(f"Saved as: map point {where} · unit for analysis: {unit_name or unit_id} ({unit_type})" + falls
+                   + (f" · point {float(point_km):.1f} km from the place" if point_km else ""))
 
     if precision == "subdistrict" and subdistrict_id and (c := subdistrict_point(inc["state_id"], district_id, subdistrict_id)):
         pts = pd.concat([pts, pd.DataFrame([{"shrid2": "", "name": f"{unit_name} subdistrict", "lon": c[1], "lat": c[0], "kind": "selected"}])])
@@ -962,12 +1028,11 @@ with right:
                 hit = precision == "subdistrict" and o.subdistrict_id == subdistrict_id
             elif o.relation == "area":
                 hit = precision == AREA and point and abs(point[0] - o.lat) < 1e-5 and abs(point[1] - o.lon) < 1e-5
-            # in or near the same place is a match; the label's precision records which
-            elif o.source == "OpenStreetMap":
-                hit = (precision in AT_PLACE and point_source == "OpenStreetMap" and point
+            elif o.source == "OpenStreetMap":  # the map point came from this option, whatever the place
+                hit = (point_source == "OpenStreetMap" and point
                        and abs(point[0] - o.lat) < 1e-5 and abs(point[1] - o.lon) < 1e-5)
-            else:  # a SHRUG place, unless the point came from an OpenStreetMap option inside it
-                hit = precision in AT_PLACE and o.shrid2 in set(chosen["shrid2"]) and point_source != "OpenStreetMap"
+            else:  # a SHRUG place; in or near the same place is a match, and the label's precision records which
+                hit = precision in AT_PLACE and o.shrid2 in set(chosen["shrid2"])
             if hit:
                 suggestion_rank = str(int(o.rank))
                 break
@@ -1001,7 +1066,10 @@ with right:
         "located_lon": loc[1] if loc and loc[0] is not None else "",
         "located_match": loc[2] if loc and loc[0] is not None else "",
         "point_lat": f"{point[0]:.6f}" if point else "", "point_lon": f"{point[1]:.6f}" if point else "",
-        "point_source": point_source, "unit_type": unit_type, "unit_id": unit_id, "unit_name": unit_name,
+        "point_source": point_source, "point_shrid2": point_shrid, "point_place_name": point_name,
+        "point_subdistrict": point_sub, "point_km": point_km,
+        "area_osm_id": st.session_state.get(key("area_osm"), "") if precision == AREA else "",
+        "unit_type": unit_type, "unit_id": unit_id, "unit_name": unit_name,
         "suggestion_rank": suggestion_rank, "model_pick_rank": model_pick_rank,
         "suggestion_run": sug["run"].iloc[0] if len(sug) and "run" in sug else "",  # which suggest.py run was shown
         "notes": notes, "labeler": labeler,
@@ -1035,7 +1103,7 @@ with right:
         elif precision == "subdistrict" and not subdistrict_id:
             st.error("Choose the subdistrict.")
         elif precision == AREA and not point:
-            st.error("Pick a forest suggestion, or paste a point in the forest under Locate by coordinates.")
+            st.error("Pick a forest suggestion, or paste a point in the forest under Map point.")
         else:
             save_label({**form, "labeled_at": datetime.now().isoformat(timespec="seconds")})
             next_unlabeled()
