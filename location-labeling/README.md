@@ -21,6 +21,9 @@ python location-labeling/gazetteer_coverage.py validation    # how often each ga
 python location-labeling/mordecai_baseline.py report validation    # Mordecai 3 (run step first, in its own environment; see the script)
 python location-labeling/compare_pipelines.py validation     # Mordecai, last year's T5, and ours on the same incidents
 python location-labeling/match_ged.py                  # UCDP GED events matched to sample incidents (#18; download GED first, see the script)
+
+# SHRUG boundaries (#26); no API calls
+python location-labeling/boundary_checks.py            # village sizes; OpenStreetMap points vs SHRUG villages; add --provenance for edit history
 ```
 
 `build_lookup.R` needs the SHRUG village polygons in `village-matching/data-large/` (not in the repository). Python packages are in `requirements.txt`. `mordecai_baseline.py` needs Mordecai 3.5, its GeoNames index, and Elasticsearch, set up as its docstring says; `gazetteer_coverage.py` needs GeoNames' India file in `data/geonames/`; `compare_pipelines.py` needs last year's fine-tuned Flan-T5-large in `model-checkpoints/flan-t5-large/` at the repository root (not committed; from the Colab results folder `satp-results/location-extraction/flan-t5-large_finetuned_model`).
@@ -41,6 +44,7 @@ python location-labeling/match_ged.py                  # UCDP GED events matched
 | `mordecai_baseline.py` | Mordecai 3.5 on the text `suggest.py` reads, as is or configured (generic words stripped, fuzzy search, more candidates), and how often it finds the coded village and places it in the coded district (#22); outputs in `data/mordecai/` |
 | `compare_pipelines.py` | Mordecai, last year's Flan-T5-large (its names through `suggest.py`'s candidate search), and our pipeline on the same incidents: names found, event village, placed in the coded district (#23); T5 outputs cached in `data/t5/`, per-incident results in `data/compare_<split>.csv` |
 | `match_ged.py` | UCDP GED events in the Maoist conflict matched to sample incidents by date, state, district, and deaths, without location names or coordinates (#18); writes `data/ged/matches.csv` |
+| `boundary_checks.py` | How big SHRUG's villages and subdistricts are in the sample's districts, and how often OpenStreetMap's village and hamlet points fall in a different SHRUG village from the one with the same name, by state and, with `--provenance`, by source tag and edit history (#26); per-point results in `data/osm_vs_shrug.csv` |
 
 Generated data (`data/`, including SATP's pages and text) and labels (`labels/`) are not committed.
 
