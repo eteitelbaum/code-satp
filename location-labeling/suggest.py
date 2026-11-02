@@ -12,10 +12,17 @@ For each incident in a split:
    each tied to the village or subdistrict it falls in. Options are ranked by spelling and context
    (the place's role, whether it lies in a named subdistrict, distance to a named police
    station); the weights are a first guess, to be tuned on the validation labels.
-3. Selection: GPT-4o-mini sees the text and the top eight options and picks one (or none),
-   with a one-sentence reason.
+3. Where it happened: a second GPT-4o-mini call reads the same text and names the one place
+   where the event happened, as written, with its relation (in, near, within police station
+   limits, in a forest or area, or only a subdistrict or district) and the quote that shows it.
+   It sees no options, so it decides from the text alone (the split Halterman's NGEC-2025 uses).
+4. Resolution: code finds that place among the candidates, with the other places kept for
+   context, and puts it first. "Between X and Y" takes the better supported end, or the
+   subdistrict when the two are far apart (rule 7); a village found only under a distant
+   spelling, when the text names a forest, gives way to the forest's points (rule 4).
 
-Model calls are cached in location-labeling/data/suggest/, so a rerun only does new work,
+Model calls are cached in location-labeling/data/suggest/ (a cached answer counts only for the
+model that gave it), so a rerun only does new work,
 and several incidents run at once. The app reads the outputs and calls nothing. Each run
 appends its tokens, estimated cost, and any failed incidents to data/suggest/runs.jsonl
 (shown in the app's sidebar). Temporary API errors are retried; if the account is out of
@@ -29,8 +36,9 @@ Run from the repository root after link_satp.py and build_osm.py, with OPENAI_AP
     python location-labeling/suggest.py validation [--limit N]
 
 Output (location-labeling/data/):
-    suggestions.csv  one row per incident and option: rank, source, place, evidence, model pick and reason, run
+    suggestions.csv  one row per incident and option: rank, source, place, evidence, the pick and its reason, run
     mentions.csv     one row per extracted place, with what it matched
+    where.csv        one row per incident: the where-it-happened answer (place, kind, relation, other end, quote, police station)
 """
 
 import argparse
@@ -266,7 +274,7 @@ def extract(client, cache, inc, texts):
     if texts:
         user += "\n\nFULL SATP ENTRY:\n" + "\n\n".join(texts)
     key = inc["incident_number"] + "|" + hashlib.sha1((EXTRACT_PROMPT + user).encode()).hexdigest()[:12]  # new prompt, new call
-    if key in cache:
+    if key in cache and cache[key].get("model") == MODEL:
         return cache[key]["mentions"]
     r = call_model(
         client, model=MODEL, temperature=0, response_format=Extraction,
@@ -688,39 +696,149 @@ def candidates(inc, mentions, places, osm, areas):
     return out, mentions
 
 
-# ---------------------------------------------------------------- 3. selection
+# ---------------------------------------------------------------- 3. where it happened
 
-class Pick(BaseModel):
-    option: int  # 1-TOP, or 0 for none of these
-    reason: str
+WHERE_PROMPT = """You help geocode incidents in India's Maoist insurgency.
+
+The CODED SUMMARY describes one incident. The FULL SATP ENTRY, when given, is the news report it came from. Use it for detail about the same incident, and ignore any other incidents it describes.
+
+Say where the event in the CODED SUMMARY happened, as precisely as the texts allow. Give:
+- place: the most specific named place where the event happened, spelled as written, without words such as village, police station, forest, or district ("Kurdeg", not "Kurdeg Police Station"). Leave it empty if the texts name nothing below the district. For "within police station limits," give the station's name as the place.
+- kind: village, town, hamlet, locality, police station, camp, forest, hill, road, gram panchayat, mandal or block, other
+- relation:
+  - "in": the event happened in or at the place. This includes an event at a police station, police post, outpost, camp, market, or railway station named after the place, and a surrender before X Police or at X police headquarters, which is in X.
+  - "near": the event happened near the place ("near X", "adjoining X", "outskirts of X", "in the forest near X village", "in the jungles of X", a road to or through X, between X and another place), in a forest or area named after or tied to X (such as one under X gram panchayat), or under X gram panchayat.
+  - "within police station limits": the texts say only that it happened under X Police Station (limits or area) and name nothing more specific.
+  - "in a forest or area": in a named forest, hill, or sanctuary, when the texts name no village or town in or near it.
+  - "subdistrict" or "district": the texts name only a block, mandal, tehsil, or district.
+- other_end: for "between X and Y" or an "X-Y road," the second place (Y); otherwise empty.
+- quote: the shortest phrase from the texts that shows the place and the relation.
+- police_station: the police station whose limits the texts place the event under, if any.
+
+Rules:
+- Give where the event happened, not where victims lived, where forces came from, or where bodies were taken.
+- A village or town beats a police station, forest, or district named in the same phrase: "near Maharbeda village under Jhara Police Station limits" is near Maharbeda, with police station Jhara."""
 
 
-SELECT_PROMPT = """You help geocode incidents in India's Maoist insurgency. Given the incident text and numbered options for where it happened, choose the option that best gives where the event in the CODED SUMMARY took place, or 0 if none fits.
+class Where(BaseModel):
+    place: str
+    kind: Literal["village", "town", "hamlet", "locality", "police station", "camp", "forest", "hill", "road",
+                  "gram panchayat", "mandal or block", "other"]
+    relation: Literal["in", "near", "within police station limits", "in a forest or area", "subdistrict", "district"]
+    other_end: str
+    quote: str
+    police_station: str
 
-Rules: prefer the most specific place the text supports; a place the event happened in or at beats one it happened near; "under X Police Station limits", when the text names nothing more specific, is "limits" at the place the station is named after; "under X gram panchayat" is "near" the place the panchayat is named after; ignore places that belong to other incidents in the full entry. For an event in a forest, hill, or sanctuary, take the first that applies: a village or town the text places the event in or near; a point in the part of the forest within the jurisdiction the text names (police station, mandal, or block); near the place the forest is named after; a point in the middle of the forest. The coders' district is sometimes wrong, so a close match in a neighboring district can be the right answer.
 
-Give the option number and a one-sentence reason that cites the text."""
-
-
-def select(client, cache, inc, texts, options):
-    listing = "\n".join(f"{i}. {o['relation']} {o['name']} — {o['evidence']}" for i, o in enumerate(options, 1))
-    key = inc["incident_number"] + "|" + hashlib.sha1((SELECT_PROMPT + listing).encode()).hexdigest()[:12]  # new prompt, new call
-    if key in cache:
-        return cache[key]["option"], cache[key]["reason"]
+def where(client, cache, inc, texts):
     user = f"CODED SUMMARY:\n{inc['incident_summary']}"
     if texts:
         user += "\n\nFULL SATP ENTRY:\n" + "\n\n".join(texts)
-    user += f"\n\nOPTIONS:\n{listing}\n0. none of these"
+    key = inc["incident_number"] + "|" + hashlib.sha1((MODEL + WHERE_PROMPT + user).encode()).hexdigest()[:12]
+    if key in cache:
+        return cache[key]["where"]
     r = call_model(
-        client, model=MODEL, temperature=0, response_format=Pick,
-        messages=[{"role": "system", "content": SELECT_PROMPT}, {"role": "user", "content": user}],
+        client, model=MODEL, temperature=0, response_format=Where,
+        messages=[{"role": "system", "content": WHERE_PROMPT}, {"role": "user", "content": user}],
     )
-    pick = r.choices[0].message.parsed
-    option = pick.option if 0 <= pick.option <= len(options) else 0
-    row = {"key": key, "model": MODEL, "option": option, "reason": pick.reason}
-    append_jsonl(CACHE / "selections.jsonl", row)
+    w = r.choices[0].message.parsed.model_dump()
+    row = {"key": key, "model": MODEL, "where": w}
+    append_jsonl(CACHE / "where.jsonl", row)
     cache[key] = row
-    return option, pick.reason
+    return w
+
+
+# ---------------------------------------------------------------- 4. resolution
+
+# the role a where-it-happened relation gives the place when it is looked up
+WHERE_ROLE = {"in": "where it happened", "near": "near where it happened", "within police station limits": "jurisdiction",
+              "in a forest or area": "near where it happened", "subdistrict": "where it happened"}
+CLOSE_KM = 5  # "between X and Y": ends farther apart than this, in one subdistrict, give the subdistrict (rule 7)
+STATION_WORDS = re.compile(r"\b(police stations?|police outposts?|police posts?|police|thana|p\.?s|outposts?|posts?|camp)\b\.?",
+                           re.IGNORECASE)
+
+
+def resolve(inc, mentions, w, places, osm, areas):
+    """The where-it-happened place among the candidates, with step 1's other places kept for context (named subdistricts,
+    stations, jurisdictions). Returns the options with the pick first, the mentions with what they matched,
+    the pick's rank (1, or 0 for none), and the reason."""
+    w = dict(w)
+    station = re.sub(r"\s+", " ", STATION_WORDS.sub(" ", w["police_station"])).strip(" .,")
+    if w["relation"] == "within police station limits":
+        if not w["place"]:  # the station given only in its own field
+            w["place"] = station
+        elif station and norm(station) != norm(w["place"]):  # a place under the station's limits is that place (rule 2)
+            w["relation"] = "in" if w["kind"] in ("village", "town", "hamlet", "locality", "camp") else "near"
+    if not w["place"] and w["other_end"]:
+        w["place"], w["other_end"] = w["other_end"], ""
+    said_where = f"{w['relation']} {w['place']}".strip() + (f" (“{w['quote']}”)" if w["quote"] else "")
+    if not w["place"] or w["relation"] == "district":
+        options, mentions = candidates(inc, mentions, places, osm, areas)
+        why = "The texts name nothing below the district" if w["relation"] == "district" else "The model named no place"
+        return options, mentions, 0, f"{why}: {said_where}."
+
+    names = [n for n in (w["place"], w["other_end"]) if n]
+    keep = [dict(m) for m in mentions if norm(m["name"]) not in {norm(n) for n in names}]
+    kind = {"within police station limits": "police station", "subdistrict": "mandal or block"}.get(w["relation"], w["kind"])
+    if w["relation"] == "in a forest or area" and kind not in FOREST_KINDS:
+        kind = "forest"
+    event = [{"name": w["place"], "kind": kind, "role": WHERE_ROLE[w["relation"]], "quote": w["quote"]}]
+    if w["other_end"]:
+        event.append({"name": w["other_end"], "kind": "village", "role": "near where it happened", "quote": w["quote"]})
+    if station and norm(station) not in {norm(m["name"]) for m in keep + event}:
+        keep.append({"name": station, "kind": "police station", "role": "jurisdiction",
+                     "quote": f"under {w['police_station']}"})
+    options, mentions = candidates(inc, keep + event, places, osm, areas)
+
+    def best_for(name):
+        """A name's best option: a SHRUG place chosen by name, a point only for a forest (rules 4, 5)."""
+        mine = [o for o in options if o["query"] == name and (o["relation"] == "subdistrict") == (w["relation"] == "subdistrict")]
+        if w["relation"] != "in a forest or area" and any(o["source"] == "SHRUG" for o in mine):
+            mine = [o for o in mine if o["source"] == "SHRUG"]
+        return mine[0] if mine else None
+
+    best = {n: o for n in names if (o := best_for(n))}
+    note = ""
+    if not best:  # a landmark no gazetteer lists ("Koyataad Railway Crossing of Dumri Vihar"): a place its quote names
+        named = [m["name"] for m in mentions if m["name"] not in names
+                 and re.search(rf"\b{re.escape(m['name'])}\b", w["quote"], flags=re.I)]
+        found = [o for o in map(best_for, named) if o]
+        if not found:
+            return options, mentions, 0, f"{w['place']} was not found: {said_where}."
+        fallback = max(found, key=lambda o: o["score"])
+        best = {w["place"]: fallback}
+        note = f" {w['place']} was not found; the quote also names {fallback['query']}."
+    a, b = best.get(w["place"]), best.get(w["other_end"])
+    if a and b and a.get("lat") and b.get("lat"):
+        far = km(a["lat"], a["lon"], b["lat"], b["lon"])
+        sub = next((o for o in options if o["relation"] == "subdistrict" and o["subdistrict_id"] == a["subdistrict_id"]), None)
+        if far > CLOSE_KM and a["subdistrict_id"] == b["subdistrict_id"] and sub:
+            pick = sub
+            note += f" {w['place']} and {w['other_end']} are {far:.0f} km apart, so their subdistrict (rule 7)."
+        else:
+            pick = max((a, b), key=lambda o: o["score"])
+            other = b if pick is a else a
+            note += f" The other end, {other['name']}, is {far:.0f} km away (rule 7)."
+    else:
+        pick = a or b
+        # rule 4.1 holds only for a village that can be found: a distant spelling, when the text names a forest,
+        # gives way to the forest's points (rules 4.2, 4.4)
+        area = next((o for o in options if o["relation"] == "area"), None)
+        if pick["relation"] in ("in", "near") and ": a different spelling" in pick["label"] and area \
+                and any(m["kind"] in ("forest", "hill") for m in mentions):
+            pick = area
+            note += f" {w['place']} matches only a distant spelling, so the forest (rule 4)."
+
+    # the text names a station after a village beside it ("Dumri Vihar": Dumri Bihar station, Dumri village): the
+    # place is the village, the station is the map point (rule 2); it follows the pick in the list
+    stop = next((o for o in options if o["query"] == pick.get("query") and o["source"] == "OpenStreetMap"
+                 and o.get("match") == "name" and re.match(r"OpenStreetMap (railway|police) station", o["evidence"])), None)
+    head = [pick]
+    if stop and pick["source"] == "SHRUG" and pick.get("match") != "name":
+        head = [{**pick, "point_lat": stop["lat"], "point_lon": stop["lon"], "point_name": stop["name"]}, stop]
+        note += f" Map point: {stop['name']} (rule 2)."
+    rest = [o for o in options if o is not pick and o is not stop]
+    return head + rest, mentions, 1, f"The model says: {said_where}.{note}"
 
 
 # ---------------------------------------------------------------- run
@@ -751,7 +869,7 @@ def main():
         areas.tree(state_id)
     if args.no_osm:
         osm = osm.head(0)
-    ext_cache, sel_cache = (read_jsonl(CACHE / f) for f in ("extractions.jsonl", "selections.jsonl"))
+    ext_cache, where_cache = (read_jsonl(CACHE / f) for f in ("extractions.jsonl", "where.jsonl"))
 
     results, failed = {}, []
     run = {"key": datetime.now().isoformat(timespec="seconds"), "split": args.split, "incidents": len(sample)}
@@ -766,9 +884,9 @@ def main():
     def work(inc):
         texts = satp.get(inc["incident_number"], [])
         mentions = extract(client, ext_cache, inc, texts)
-        options, mentions = candidates(inc, mentions, places, osm, areas)
-        pick, reason = select(client, sel_cache, inc, texts, options) if options else (0, "no options")
-        return mentions, options, pick, reason
+        w = where(client, where_cache, inc, texts)
+        options, mentions, pick, reason = resolve(inc, mentions, w, places, osm, areas)
+        return mentions, options, pick, reason, w
 
     incidents = sample.to_dict("records")
     with ThreadPoolExecutor(WORKERS) as pool:
@@ -787,12 +905,13 @@ def main():
             if n % 50 == 0:
                 print(f"{n} of {len(sample)}", flush=True)
 
-    rows, mention_rows = [], []
+    rows, mention_rows, where_rows = [], [], []
     for inc in incidents:  # in labeling order
         iid = inc["incident_number"]
         if iid not in results:
             continue
-        mentions, options, pick, reason = results[iid]
+        mentions, options, pick, reason, w = results[iid]
+        where_rows.append({"incident_number": iid, **w})
         for m in mentions:
             mention_rows.append({"incident_number": iid, **m})
         for rank, o in enumerate(options, 1):
@@ -805,13 +924,14 @@ def main():
     sug = pd.DataFrame(rows).assign(run=run["key"])
     sug.to_csv(DATA / "suggestions.csv", index=False)
     pd.DataFrame(mention_rows).assign(run=run["key"]).to_csv(DATA / "mentions.csv", index=False)
+    pd.DataFrame(where_rows).assign(run=run["key"]).to_csv(DATA / "where.csv", index=False)
     keep = CACHE / "runs" / run["key"].replace(":", "-")
     keep.mkdir(parents=True, exist_ok=True)
-    for f in ("suggestions.csv", "mentions.csv"):
+    for f in ("suggestions.csv", "mentions.csv", "where.csv"):
         shutil.copy(DATA / f, keep / f)
     per = sug[sug["rank"] > 0].groupby("incident_number").size()
     print(f"{len(sample)} incidents; with options: {len(per)}; mean options {per.mean():.1f}; "
-          f"model picked none: {(sug['rank'] == 0).sum()}")
+          f"no place picked: {(sug['rank'] == 0).sum()}")
     print(sug[sug["rank"] > 0]["source"].value_counts().to_string())
     log("finished")
 

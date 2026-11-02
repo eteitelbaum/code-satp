@@ -33,6 +33,7 @@ OSM_FILE = ROOT / "data" / "osm_places.parquet"  # from build_osm.py
 SUBDIST_FILE = ROOT / "data" / "subdistrict_shapes.parquet"
 SUGGEST_FILE = ROOT / "data" / "suggestions.csv"  # from suggest.py
 MENTIONS_FILE = ROOT / "data" / "mentions.csv"
+WHERE_FILE = ROOT / "data" / "where.csv"  # suggest.py's where-it-happened answers
 RUNS_FILE = ROOT / "data" / "suggest" / "runs.jsonl"  # suggest.py runs: tokens, cost, failures
 BILLING = "https://platform.openai.com/settings/organization/billing/overview"
 LABELS_FILE = ROOT / "labels" / "labels.csv"
@@ -138,12 +139,23 @@ def load_suggestions(version):
     for c in ("label", "why", "source_note"):  # plain wording; runs before it was added fall back to the evidence
         if c not in sug:
             sug[c] = ""
+    for c in ("point_lat", "point_lon", "point_name"):  # a station's point for the pick (rule 2); runs before had none
+        if c not in sug:
+            sug[c] = None
     text_cols = ["shrid2", "subdistrict_id", "query", "evidence", "model_reason", "name", "relation", "source", "osm_id",
                  "label", "why", "source_note"]
     sug[text_cols] = sug[text_cols].fillna("")
     sug["model_pick"] = sug["model_pick"].astype(str) == "True"
     mentions = pd.read_csv(MENTIONS_FILE, dtype=str).fillna("")
     return sug, mentions
+
+
+@st.cache_data
+def load_where(version):
+    """suggest.py's where-it-happened answer per incident (empty for runs before it); `version` is file_version(WHERE_FILE)."""
+    if not WHERE_FILE.exists():
+        return {}
+    return pd.read_csv(WHERE_FILE, dtype=str).fillna("").set_index("incident_number").to_dict("index")
 
 
 def osm_map(name, osm_id="", lat=None, lon=None):
@@ -227,6 +239,9 @@ def apply_suggestion(o):
         else:
             st.session_state[key("precision")] = AT_PLACE[0] if o.relation == "in" else AT_PLACE[1]
         st.session_state[key("choice")] = o.shrid2
+        if pd.notna(o.point_lat):  # a station named after the village: its point is the map point (rule 2)
+            set_point(o.point_lat, o.point_lon, f"{o.point_name} (OpenStreetMap)")
+            st.session_state[key("point_suggestion")] = int(o.rank)
         in_shrug = load_places().loc[lambda d: d.shrid2 == o.shrid2, "place_type"]
         town = (in_shrug == "town").any() or re.search(r"SHRUG (town|city)", o.evidence)
         # what the report names, as the model read it: "Baskatwa forest" is a forest named after a village
@@ -648,7 +663,8 @@ satp_texts, satp_page = satp.get(iid, ([], ""))
 text = "\n\n".join([inc["incident_summary"]] + satp_texts)  # places in the summary or the full SATP entry
 in_text = names_in_text(places, text)
 # "Dantewada District" names a district, not the town; keep a name only if it also appears without "District"
-in_text = in_text[[bool(re.search(rf"\b{re.escape(n)}\b(?!\s+district)", text, flags=re.I)) for n in in_text["name"]]]
+in_text = in_text[in_text["name"].map(lambda n: bool(re.search(rf"\b{re.escape(n)}\b(?!\s+district)", text, flags=re.I)))
+                  .astype(bool)]  # a Series, so no names keeps the columns
 # "Warangal District" names the district, not the town of Warangal
 in_text = in_text[~in_text["key"].isin({norm(inc["district"]), norm(inc["district_name_2011"])})]
 pre_shrid, pre_source = preselect(inc, places)
@@ -910,6 +926,17 @@ with left:
             row = here.iloc[0]
             note = "" if row["district_id"] == inc["district_id_2011"] else f" (in {row['district_name'].title()} district, not the coded one)"
             st.success(f"Map point is {how}: {row['label']}{note}")
+    # the model's own answer, closed until opened, so it can be checked after deciding (like the pin, rule 8)
+    if answer := load_where(file_version(WHERE_FILE)).get(iid):
+        with st.expander("Model's answer (step 2)"):
+            place = answer["place"] or "no place named"
+            st.markdown(f"**{answer['relation']}** {place}" + (f" ({answer['kind']})" if answer["place"] else ""))
+            details = [f"“{answer['quote']}”" if answer["quote"] else "",
+                       f"Other end: {answer['other_end']}" if answer["other_end"] else "",
+                       f"Police station: {answer['police_station']}" if answer["police_station"] else ""]
+            st.caption("  \n".join(d for d in details if d))
+            st.caption("The model reads the text without seeing the options; the starred option is this answer found "
+                       "among them, or a fallback when it cannot be found.")
 
 with right:
     if inc["latitude"]:
