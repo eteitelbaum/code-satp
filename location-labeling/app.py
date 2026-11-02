@@ -209,6 +209,9 @@ def apply_suggestion(o):
     if o.relation == "subdistrict":
         st.session_state[key("precision")] = "subdistrict"
         st.session_state[key("subdistrict")] = o.subdistrict_id
+        p = load_places()
+        st.session_state[key("sub_district")] = next(iter(  # so the subdistrict list includes one in another district
+            p.loc[(p.state_id == inc["state_id"]) & (p.subdistrict_id == o.subdistrict_id), "district_id"]), None)
         st.session_state[key("type")] = ""  # the report may name a forest, a police station, or the subdistrict itself
     elif o.relation == "area":  # a point inside a forest, sanctuary, or hill
         st.session_state[key("precision")] = AREA
@@ -221,7 +224,8 @@ def apply_suggestion(o):
         st.session_state[key("area_label")] = shown_as
         st.session_state[key("type")] = "hill" if re.search(r"OpenStreetMap (peak|hill|ridge)", o.evidence) else "forest"
     elif o.source == "OpenStreetMap" and o.relation == "limits":  # the police station's point; the place is its namesake (rule 2)
-        set_point(o.lat, o.lon, "the police station (OpenStreetMap)")
+        set_point(o.lat, o.lon, "the police station (OpenStreetMap)" if o.evidence.startswith("OpenStreetMap police station")
+                  else f"{o.name} (OpenStreetMap)")  # or the town it is named after, where SHRUG lacks it
         st.session_state[key("point_suggestion")] = int(o.rank)
         st.session_state[key("precision")] = PS_LIMITS
         st.session_state[key("type")] = "police station"

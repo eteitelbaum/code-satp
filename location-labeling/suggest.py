@@ -57,6 +57,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 import shapely
 from dotenv import load_dotenv
@@ -95,6 +96,10 @@ NEAR_POLICE_STATION = 0.1  # within 15 km of a named police station
 SETTLEMENT_KINDS = {"village", "town", "hamlet", "locality", "police station", "gram panchayat", "camp", "other"}
 OTHER_DISTRICT = -0.1  # a match outside the coded district, which needs a closer spelling (SURE)
 NEAR_SPELLING = 0.05  # keep a name's SHRUG matches within this of its best
+STATION_SURE = 0.94  # a police station's namesake outside the coded district: closer than a village's (SURE), as it anchors the pick
+# station names that say which of a district's stations, not where ("Sadar Police Station", "Town Police Station")
+DISTRICT_POLICE = re.compile(r"\b(district|sub-?division|range|zone)\b", re.IGNORECASE)  # "Kanker District Police"
+GENERIC_STATION = re.compile(r"^(sadar|town|kotwali|mufassil|mofussil|city|model|women|mahila)\b", re.IGNORECASE)
 
 # words that describe a place rather than name it
 GENERIC = (r"\b(villages?|areas?|reserve forests?|forests?|jungles?|hills?|hillocks?|valley|police stations?|ps|outposts?|camps?|blocks?|district|mandal|tehsil|taluka|panchayat|sub-?division|road|upgraded|middle|primary|high|schools?|the)\b")
@@ -393,9 +398,32 @@ def candidates(inc, mentions, places, osm, areas):
     police = settlements[(settlements.kind == "police station") & (settlements.district_id == inc["district_id_2011"])]
     police_keys = settlement_keys[police.index]
 
+    police_state = settlements[settlements.kind == "police station"]
+    police_state_keys = settlement_keys[police_state.index]
+    state_subs = state.drop_duplicates("subdistrict_id").dropna(subset=["subdistrict_name"])
+
+    # police stations and blocks are looked for as villages are: in the coded district, and elsewhere in the state when
+    # nothing in the district is close (SURE), since coders' districts can be wrong or have changed since 2011
     def osm_police(name):
-        """OpenStreetMap police stations in the district with the station's name ("Gomia Police Station" for "Gomia")."""
-        return {i: sim for i, sim in fuzzy(query_names(name), police_keys, 3).items() if sim >= SURE}
+        """OpenStreetMap police stations with the station's name ("Gomia Police Station" for "Gomia")."""
+        hits = {i: sim for i, sim in fuzzy(query_names(name), police_keys, 3).items() if sim >= SURE}
+        return hits or {i: sim for i, sim in fuzzy(query_names(name), police_state_keys, 3).items() if sim >= SURE}
+
+    def station_namesakes(name):
+        """SHRUG places a police station is named after (station_places)."""
+        hits = station_places(query_names(name), keys, district_parts, district)
+        if max(hits.values(), default=0) < SURE and not GENERIC_STATION.match(name):
+            hits.update({i: sim for i, sim in station_places(query_names(name), state_keys, state_parts, state).items()
+                         if sim >= STATION_SURE and i not in district.index})
+        return hits
+
+    def named_blocks(name):
+        """Subdistricts with a block or mandal's name, as (subdistrict row, similarity)."""
+        hits = [(s, sim) for _, s in subs.iterrows() if (sim := spelling(norm(name), norm(s["subdistrict_name"]))) >= 0.85]
+        if max((sim for _, sim in hits), default=0) < SURE:
+            hits += [(s, sim) for _, s in state_subs[state_subs.district_id != inc["district_id_2011"]].iterrows()
+                     if (sim := spelling(norm(name), norm(s["subdistrict_name"]))) >= SURE]
+        return hits
 
     # context: subdistricts named in the text, named police stations' locations, and the subdistricts
     # of the jurisdictions the text names ("under X Police Station", "X mandal")
@@ -404,30 +432,36 @@ def candidates(inc, mentions, places, osm, areas):
         if m["role"] == "another incident":
             continue
         if m["kind"] == "mandal or block":
-            for _, s in subs.iterrows():
-                if spelling(norm(m["name"]), norm(s["subdistrict_name"])) >= 0.85:
-                    named_subs.add(s["subdistrict_id"])
-                    jurisdictions.setdefault(s["subdistrict_id"], f"named in the text (“{m['quote']}”)")
-                    jurisdiction_why.setdefault(s["subdistrict_id"], f"The text names the block or mandal (“{m['quote']}”).")
+            for s, _ in named_blocks(m["name"]):
+                named_subs.add(s["subdistrict_id"])
+                jurisdictions.setdefault(s["subdistrict_id"], f"named in the text (“{m['quote']}”)")
+                jurisdiction_why.setdefault(s["subdistrict_id"], f"The text names the block or mandal (“{m['quote']}”).")
         elif m["role"] == "jurisdiction" and m["kind"] not in ("district", "state"):
-            for i in station_places(query_names(m["name"]), keys, district_parts, district):
-                sid = district.loc[i, "subdistrict_id"]
+            for i in station_namesakes(m["name"]):
+                sid = places.loc[i, "subdistrict_id"]
                 jurisdictions.setdefault(sid, f"where {m['name']} lies, a jurisdiction in the text (“{m['quote']}”)")
                 jurisdiction_why.setdefault(sid, f"The text names {m['name']} as the jurisdiction (“{m['quote']}”), "
                                                  f"and {m['name']} is in {sub_names.get(sid, 'that')} subdistrict.")
         if m["kind"] == "police station":
             exact = district[keys == norm(m["name"])]
+            if exact.empty:  # elsewhere in the state, only if one place has the name
+                exact = state[state_keys == norm(m["name"])].pipe(lambda d: d if len(d) == 1 else d.iloc[:0])
             if len(exact):
                 stations.append((exact.iloc[0]["lat"], exact.iloc[0]["lon"]))
             stations += [(osm.loc[i, "lat"], osm.loc[i, "lon"]) for i in osm_police(m["name"])]
 
-    def context(district_id, subdistrict_id, lat, lon):
-        """Score adjustment and notes for where a matched place lies."""
+    district_points = district[["lat", "lon"]].dropna().to_numpy()
+
+    def context(district_id, subdistrict_id, lat, lon, far=False):
+        """Score adjustment and notes for where a matched place lies; with far, how far outside the coded district."""
         score, notes = 0.0, []
         if district_id != inc["district_id_2011"]:
             score += OTHER_DISTRICT
             name = district_name.get(district_id)  # names are listed only for coded districts
             notes.append(f"in {name.title()} district, not the coded one" if name else "in another district, not the coded one")
+            if far and len(district_points) and lat is not None:
+                d = 111.32 * np.hypot(district_points[:, 0] - lat, (district_points[:, 1] - lon) * math.cos(math.radians(lat))).min()
+                notes[-1] = notes[-1].replace("not the coded one", f"{d:.0f} km from the coded one")
         if subdistrict_id in named_subs:
             score += IN_NAMED_SUBDISTRICT
             notes.append("in the named subdistrict")
@@ -527,18 +561,20 @@ def candidates(inc, mentions, places, osm, areas):
         if m["role"] in ("another incident", "other place in this incident") or m["kind"] in ("district", "state") \
                 or (norm(m["name"]) in district_names and m["kind"] not in SETTLEMENT_KINDS):  # keep "Ranchi" the town
             continue
+        if m["role"] == "jurisdiction" and is_station(m) and DISTRICT_POLICE.search(m["name"]):
+            continue  # a district's police ("Palamau District"), not a station named after a place
         if m["role"] == "jurisdiction" and m["kind"] != "mandal or block" and not is_panchayat(m):
             # "under X Police Station limits": within the station's limits, at the place it is named after
             # (protocol rule 2); other jurisdictions, near the place; then the subdistrict X lies in
             limits = is_station(m)
-            namesakes = station_places(query_names(m["name"]), keys, district_parts, district)
+            namesakes = station_namesakes(m["name"])
             loose = not namesakes  # none close: the closest spelling, for the model to judge ("Gomia" -> Gumia)
             if loose:
                 namesakes = {i: sim for i, sim in fuzzy(query_names(m["name"]), keys, 1).items() if sim >= FLOOR}
             for i, sim in namesakes.items():
-                p = district.loc[i]
+                p = places.loc[i]
                 sub = str(p["subdistrict_name"]).title()
-                adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"])
+                adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"], far=True)
                 adjust -= LOOSE_PENALTY if loose else 0
                 options.append({"relation": "limits" if limits else "near", "source": "SHRUG", "name": p["name"],
                                 "shrid2": p["shrid2"], "subdistrict_id": p["subdistrict_id"], "lat": p["lat"], "lon": p["lon"],
@@ -567,7 +603,7 @@ def candidates(inc, mentions, places, osm, areas):
             # the station itself, where OpenStreetMap has it: the map point (rule 2)
             for i, sim in osm_police(m["name"]).items() if limits else []:
                 h = osm.loc[i]
-                adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"])
+                adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"], far=True)
                 where = f"falls in {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"] else "outside every village"
                 options.append({"relation": "limits", "source": "OpenStreetMap", "name": h["primary"], "osm_id": h["osm_id"],
                                 "shrid2": h["shrid2"], "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
@@ -580,23 +616,48 @@ def candidates(inc, mentions, places, osm, areas):
                                 "source_note": f"OpenStreetMap police station, {where}, {similarity(sim)}"
                                                + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
                 m["matched"] += (" · " if m["matched"] else "") + f"OpenStreetMap {sim:.2f} (police station)"
+            # SHRUG has nothing close to the station's name: the OpenStreetMap town or village it is named after, as
+            # for villages (rules 2, 5)
+            seen = set()
+            for i, sim in nearby(query_names(m["name"]), settlement_district_keys, settlement_keys).items() \
+                    if limits and (loose or max(namesakes.values()) < SURE) else []:
+                h = osm.loc[i]
+                if sim < SURE or h["kind"] == "police station" or h["osm_id"] in seen:
+                    continue
+                seen.add(h["osm_id"])
+                adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"], far=True)
+                where = f"falls in {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"] else "outside every village"
+                kind = h["kind"].replace("_", " ")
+                options.append({"relation": "limits", "source": "OpenStreetMap", "name": h["primary"], "osm_id": h["osm_id"],
+                                "shrid2": h["shrid2"], "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
+                                "score": sim + ROLE_WEIGHT["jurisdiction"] - 0.05 + adjust, "query": m["name"],
+                                "evidence": " · ".join([f"OpenStreetMap {kind}, {where}, spelling {sim:.2f} to “{m['name']}”",
+                                                        f"jurisdiction (“{m['quote']}”)"] + notes),
+                                "label": f"Within {m['name']} police station limits: {h['primary']} {kind} (OpenStreetMap)",
+                                "why": said(m) + f" SHRUG has no place close to the station's name, so OpenStreetMap's {kind} "
+                                                 "is the place it is named after, and its point is the map point (rules 2, 5)."
+                                       + facts(notes),
+                                "source_note": f"OpenStreetMap {kind}, {where}, {similarity(sim)}"
+                                               + ("." if sim >= 0.995 else f" to “{m['name']}”.")})
+                m["matched"] += (" · " if m["matched"] else "") + f"OpenStreetMap {sim:.2f} ({kind})"
             continue
         # "under X gram panchayat": near the place it is named after (protocol rule 2)
         panchayat = is_panchayat(m)
         weight = ROLE_WEIGHT["near where it happened"] if panchayat else ROLE_WEIGHT.get(m["role"], 0.0)
         relation = "in" if m["role"] == "where it happened" and m["kind"] in SETTLEMENT_KINDS and not panchayat else "near"
         if m["kind"] == "mandal or block":
-            for _, s in subs.iterrows():
-                sim = spelling(norm(m["name"]), norm(s["subdistrict_name"]))
-                if sim >= 0.85:
-                    options.append({"relation": "subdistrict", "source": "SHRUG", "name": s["subdistrict_name"].title(),
-                                    "shrid2": "", "subdistrict_id": s["subdistrict_id"], "lat": None, "lon": None,
-                                    "score": sim + 0.1 * (weight + 0.1), "query": m["name"],
-                                    "evidence": f"subdistrict named in the text (“{m['quote']}”), spelling {sim:.2f}",
-                                    "label": f"{s['subdistrict_name'].title()} subdistrict",
-                                    "why": f"{said(m)} That names the block or mandal.",
-                                    "source_note": "SHRUG subdistrict" + ("" if sim >= 0.995 else f", {similarity(sim)} to “{m['name']}”") + "."})
-                    m["matched"] = "SHRUG subdistrict"
+            for s, sim in named_blocks(m["name"]):
+                other = s.get("district_id", inc["district_id_2011"]) != inc["district_id_2011"]
+                elsewhere = f" in {s['district_name'].title()} district, not the coded one" if other else ""
+                options.append({"relation": "subdistrict", "source": "SHRUG", "name": s["subdistrict_name"].title(),
+                                "shrid2": "", "subdistrict_id": s["subdistrict_id"], "lat": None, "lon": None,
+                                "score": sim + 0.1 * (weight + 0.1) + (OTHER_DISTRICT if other else 0), "query": m["name"],
+                                "evidence": f"subdistrict named in the text (“{m['quote']}”), spelling {sim:.2f}"
+                                            + (f" · {elsewhere.strip()}" if other else ""),
+                                "label": f"{s['subdistrict_name'].title()} subdistrict" + (f" ({s['district_name'].title()} district)" if other else ""),
+                                "why": f"{said(m)} That names the block or mandal." + (f" It is{elsewhere}." if other else ""),
+                                "source_note": "SHRUG subdistrict" + ("" if sim >= 0.995 else f", {similarity(sim)} to “{m['name']}”") + "."})
+                m["matched"] = "SHRUG subdistrict"
             continue
         names = query_names(m["name"])
         words = query_words(names[0])
@@ -756,6 +817,42 @@ WHERE_ROLE = {"in": "where it happened", "near": "near where it happened", "with
 CLOSE_KM = 5  # "between X and Y": ends farther apart than this, in one subdistrict, give the subdistrict (rule 7)
 STATION_WORDS = re.compile(r"\b(police stations?|police outposts?|police posts?|police|thana|p\.?s|outposts?|posts?|camp)\b\.?",
                            re.IGNORECASE)
+INSIDE_KM = 15  # this close to the named police station, a match counts as inside its limits
+FAR_KM = 25  # a match farther than this from the named police station or subdistrict is taken for another place
+
+
+def jurisdiction(inc, station, mentions, options, places):
+    """The area the text places the event under: the subdistricts of the police station (where its namesake lies, and
+    any subdistrict named like it) and of a block or mandal the text names, and the station's points. Returns the
+    station's limits options found by name, whether the station was found, the area's name for notes, and a function
+    giving a match's distance outside the area in km (0 inside it, None with no area)."""
+    state = places[places.state_id == inc["state_id"]]
+    if DISTRICT_POLICE.search(station) or GENERIC_STATION.match(station) \
+            or norm(station) in {norm(inc["district"]), norm(inc["district_name_2011"])}:  # a district's police, not a station
+        station = ""
+    limits = [o for o in options if station and o["relation"] == "limits" and o["query"] == station
+              and o.get("match", "name") == "name" and ": a different spelling" not in o["label"] and o["lat"] is not None]
+    subs = {o["subdistrict_id"] for o in limits}
+    if station:
+        named = state.drop_duplicates("subdistrict_id").dropna(subset=["subdistrict_name"])
+        subs |= set(named.loc[named.subdistrict_name.map(lambda s: spelling(norm(station), norm(s)) >= 0.95), "subdistrict_id"])
+    found = bool(subs)
+    blocks = {m["name"] for m in mentions if m["kind"] == "mandal or block" and m["role"] != "another incident"}
+    named_blocks = [o for o in options if o["relation"] == "subdistrict" and o["query"] in blocks]
+    subs |= {o["subdistrict_id"] for o in named_blocks}
+    if not subs:
+        return limits, False, "", lambda o: None
+    stations = [(o["lat"], o["lon"]) for o in limits]
+    edge = [tuple(p) for p in state.loc[state.subdistrict_id.isin(subs), ["lat", "lon"]].dropna().to_numpy()]
+    name = f"the {station} police station area" if found else f"{named_blocks[0]['name']} subdistrict"
+
+    def away(o):
+        if o["relation"] not in ("in", "near") or o["lat"] is None or o["subdistrict_id"] in subs:
+            return 0.0
+        if stations and min(km(o["lat"], o["lon"], la, lo) for la, lo in stations) <= INSIDE_KM:
+            return 0.0
+        return min(km(o["lat"], o["lon"], la, lo) for la, lo in stations + edge)
+    return limits, found, name, away
 
 
 def resolve(inc, mentions, w, places, osm, areas):
@@ -790,12 +887,21 @@ def resolve(inc, mentions, w, places, osm, areas):
                      "quote": f"under {w['police_station']}"})
     options, mentions = candidates(inc, keep + event, places, osm, areas)
 
+    # the police station or block the text names: a place's matches inside it come first, and one outside it says how far
+    limits, by_station, area_name, away = jurisdiction(inc, station, mentions, options, places)
+    for o in options:
+        if o["query"] in names and (d := away(o)):
+            o["evidence"] += f" · {d:.0f} km from {area_name}"
+            o["why"] += f" It is {d:.0f} km from {area_name}."
+
     def best_for(name):
-        """A name's best option: a SHRUG place chosen by name, a point only for a forest (rules 4, 5)."""
+        """A name's best option: a SHRUG place chosen by name, a point only for a forest (rules 4, 5), inside the
+        text's police station or block area if any is."""
         mine = [o for o in options if o["query"] == name and (o["relation"] == "subdistrict") == (w["relation"] == "subdistrict")]
         if w["relation"] != "in a forest or area" and any(o["source"] == "SHRUG" for o in mine):
             mine = [o for o in mine if o["source"] == "SHRUG"]
-        return mine[0] if mine else None
+        inside = [o for o in mine if not away(o)]
+        return (inside or mine)[0] if mine else None
 
     best = {n: o for n in names if (o := best_for(n))}
     note = ""
@@ -828,6 +934,12 @@ def resolve(inc, mentions, w, places, osm, areas):
                 and any(m["kind"] in ("forest", "hill") for m in mentions):
             pick = area
             note += f" {w['place']} matches only a distant spelling, so the forest (rule 4)."
+        elif by_station and (d := away(pick)) and d > FAR_KM:  # far outside the station's area: another place of that name
+            found = f" {w['place']} was found only {d:.0f} km from {area_name} ({pick['label']}), so probably not the place"
+            if limits:
+                pick, note = limits[0], note + found + "; the station's limits (rule 2)."
+            else:
+                return options, mentions, 0, f"The model says: {said_where}.{note}{found}."
 
     # the text names a station after a village beside it ("Dumri Vihar": Dumri Bihar station, Dumri village): the
     # place is the village, the station is the map point (rule 2); it follows the pick in the list
