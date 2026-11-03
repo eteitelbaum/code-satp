@@ -95,6 +95,8 @@ IN_NAMED_SUBDISTRICT = 0.2
 NEAR_POLICE_STATION = 0.1  # within 15 km of a named police station
 SETTLEMENT_KINDS = {"village", "town", "hamlet", "locality", "police station", "gram panchayat", "camp", "other"}
 OTHER_DISTRICT = -0.1  # a match outside the coded district, which needs a closer spelling (SURE)
+FAR_DISTRICT_KM = 150  # a village this far outside the coded district is probably another place of that name (a town is kept)
+FAR_PENALTY = -1.0  # which ranks it after every other option
 NEAR_SPELLING = 0.05  # keep a name's SHRUG matches within this of its best
 STATION_SURE = 0.94  # a police station's namesake outside the coded district: closer than a village's (SURE), as it anchors the pick
 # station names that say which of a district's stations, not where ("Sadar Police Station", "Town Police Station")
@@ -452,16 +454,24 @@ def candidates(inc, mentions, places, osm, areas):
 
     district_points = district[["lat", "lon"]].dropna().to_numpy()
 
-    def context(district_id, subdistrict_id, lat, lon, far=False):
-        """Score adjustment and notes for where a matched place lies; with far, how far outside the coded district."""
+    def from_district(lat, lon):
+        """km from the coded district's nearest SHRUG place."""
+        return float(111.32 * np.hypot(district_points[:, 0] - lat, (district_points[:, 1] - lon) * math.cos(math.radians(lat))).min())
+
+    def context(district_id, subdistrict_id, lat, lon, station=False, town=False):
+        """Score adjustment and notes for where a matched place lies. A match outside the coded district says how far
+        outside it lies, and a village more than FAR_DISTRICT_KM away ranks last (a town or a police station's place
+        keeps its rank, as the coders' district can be wrong)."""
         score, notes = 0.0, []
         if district_id != inc["district_id_2011"]:
             score += OTHER_DISTRICT
             name = district_name.get(district_id)  # names are listed only for coded districts
             notes.append(f"in {name.title()} district, not the coded one" if name else "in another district, not the coded one")
-            if far and len(district_points) and lat is not None:
-                d = 111.32 * np.hypot(district_points[:, 0] - lat, (district_points[:, 1] - lon) * math.cos(math.radians(lat))).min()
+            if len(district_points) and lat is not None:
+                d = from_district(lat, lon)
                 notes[-1] = notes[-1].replace("not the coded one", f"{d:.0f} km from the coded one")
+                if d > FAR_DISTRICT_KM and not (station or town):
+                    score += FAR_PENALTY
         if subdistrict_id in named_subs:
             score += IN_NAMED_SUBDISTRICT
             notes.append("in the named subdistrict")
@@ -574,7 +584,7 @@ def candidates(inc, mentions, places, osm, areas):
             for i, sim in namesakes.items():
                 p = places.loc[i]
                 sub = str(p["subdistrict_name"]).title()
-                adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"], far=True)
+                adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"], station=True)
                 adjust -= LOOSE_PENALTY if loose else 0
                 options.append({"relation": "limits" if limits else "near", "source": "SHRUG", "name": p["name"],
                                 "shrid2": p["shrid2"], "subdistrict_id": p["subdistrict_id"], "lat": p["lat"], "lon": p["lon"],
@@ -603,7 +613,7 @@ def candidates(inc, mentions, places, osm, areas):
             # the station itself, where OpenStreetMap has it: the map point (rule 2)
             for i, sim in osm_police(m["name"]).items() if limits else []:
                 h = osm.loc[i]
-                adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"], far=True)
+                adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"], station=True)
                 where = f"falls in {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"] else "outside every village"
                 options.append({"relation": "limits", "source": "OpenStreetMap", "name": h["primary"], "osm_id": h["osm_id"],
                                 "shrid2": h["shrid2"], "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
@@ -625,7 +635,7 @@ def candidates(inc, mentions, places, osm, areas):
                 if sim < SURE or h["kind"] == "police station" or h["osm_id"] in seen:
                     continue
                 seen.add(h["osm_id"])
-                adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"], far=True)
+                adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"], station=True)
                 where = f"falls in {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"] else "outside every village"
                 kind = h["kind"].replace("_", " ")
                 options.append({"relation": "limits", "source": "OpenStreetMap", "name": h["primary"], "osm_id": h["osm_id"],
@@ -666,11 +676,11 @@ def candidates(inc, mentions, places, osm, areas):
         hits, best = ranked(names, words, keys, state_keys, district_parts, state_parts)
         for i, (sim, how, word) in sorted(hits.items(), key=lambda x: PENALTY[x[1][1]] - x[1][0]):
             p = places.loc[i]
-            adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"])
+            adjust, notes = context(p["district_id"], p["subdistrict_id"], p["lat"], p["lon"], town=p["place_type"] == "town")
             clause, suffix, contains = how_matched(sim, how, word, m["name"])
             options.append({"relation": relation, "source": "SHRUG", "name": p["name"], "shrid2": p["shrid2"],
                             "subdistrict_id": p["subdistrict_id"], "lat": p["lat"], "lon": p["lon"],
-                            "score": sim - PENALTY[how] + weight + adjust, "query": m["name"], "match": how,
+                            "score": sim - PENALTY[how] + weight + adjust, "query": m["name"], "match": how, "spelling": sim,
                             "evidence": " · ".join([f"SHRUG {p['place_type']} in {str(p['subdistrict_name']).title()} subdistrict, {clause}",
                                                     f"{m['role']} (“{m['quote']}”)"] + notes),
                             "label": f"{relation.capitalize()} {p['name']} {p['place_type']}, "
@@ -692,8 +702,11 @@ def candidates(inc, mentions, places, osm, areas):
             if found:
                 m["matched"] += (" · " if m["matched"] else "") + f"OpenStreetMap area {fbest:.2f}"
 
-        # OpenStreetMap's named places, when SHRUG has nothing close
-        if best >= SURE or m["kind"] not in OSM_KINDS or osm_state.empty:
+        # OpenStreetMap's named places, when SHRUG has nothing close in the coded district (SHRUG's Dhurwa in Dumka
+        # must not hide OpenStreetMap's Dhurwa police station in Ranchi)
+        local = max((sim for i, (sim, how, _) in hits.items() if how == "name"
+                     and places.at[i, "district_id"] == inc["district_id_2011"]), default=0.0)
+        if local >= SURE or m["kind"] not in OSM_KINDS or osm_state.empty:
             continue
         ohits, _ = ranked(names, words, settlement_district_keys, settlement_keys)
         seen = set()
@@ -702,7 +715,7 @@ def candidates(inc, mentions, places, osm, areas):
             if h["osm_id"] in seen:
                 continue
             seen.add(h["osm_id"])
-            adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"])
+            adjust, notes = context(h["district_id"], h["subdistrict_id"], h["lat"], h["lon"], town=h["kind"] in ("town", "city"))
             where = f"falls in {village_names.get(h['shrid2'], h['shrid2'])}" if h["shrid2"] else "outside every village"
             alias = f" (listed as “{h['name']}”)" if h["name"] != h["primary"] else ""
             clause, suffix, contains = how_matched(sim, how, word, m["name"])
@@ -710,7 +723,7 @@ def candidates(inc, mentions, places, osm, areas):
                             "shrid2": h["shrid2"],
                             "subdistrict_id": h["subdistrict_id"], "lat": h["lat"], "lon": h["lon"],
                             "score": sim - PENALTY[how] + weight - 0.05 + adjust,  # a little below an equal SHRUG match
-                            "query": m["name"], "match": how,
+                            "query": m["name"], "match": how, "spelling": sim,
                             "evidence": " · ".join([f"OpenStreetMap {h['kind']}{alias}, {where}, {clause}",
                                                     f"{m['role']} (“{m['quote']}”)"] + notes),
                             "label": f"{relation.capitalize()} {h['primary']}"
@@ -866,8 +879,20 @@ def resolve(inc, mentions, w, places, osm, areas):
             w["place"] = station
         elif station and norm(station) != norm(w["place"]):  # a place under the station's limits is that place (rule 2)
             w["relation"] = "in" if w["kind"] in ("village", "town", "hamlet", "locality", "camp") else "near"
-    if not w["place"] and w["other_end"]:
-        w["place"], w["other_end"] = w["other_end"], ""
+    if not w["place"] and w["other_end"]:  # "connecting X and Y" given as only Y: X is step 1's place first named in the quote
+        def at(m):
+            return re.search(rf"\b{re.escape(m['name'])}\b", w["quote"], flags=re.I)
+        named = sorted((m for m in mentions if norm(m["name"]) != norm(w["other_end"]) and m["role"] != "another incident"
+                        and at(m)), key=lambda m: at(m).start())
+        if named:
+            w["place"], w["kind"] = named[0]["name"], named[0]["kind"]
+        else:
+            w["place"], w["other_end"] = w["other_end"], ""
+    between = re.search(r"\bbetween\b", w["quote"], flags=re.I)
+    if w["place"] and w["other_end"] and between and not re.search(rf"\b{re.escape(w['place'])}\b", w["quote"][between.end():], flags=re.I):
+        w["other_end"] = ""  # "the forest of Naingunda between Kotmi and Kasansoor": the place is not one of the ends
+    if w["place"] and re.search(rf"\b{re.escape(w['place'])}\s+(block|mandal|tehsil|taluka?)\b", w["quote"], flags=re.I):
+        w["relation"] = "subdistrict"  # "at Churchu block": the block, not a village of that name
     said_where = f"{w['relation']} {w['place']}".strip() + (f" (“{w['quote']}”)" if w["quote"] else "")
     if not w["place"] or w["relation"] == "district":
         options, mentions = candidates(inc, mentions, places, osm, areas)
@@ -894,10 +919,28 @@ def resolve(inc, mentions, w, places, osm, areas):
             o["evidence"] += f" · {d:.0f} km from {area_name}"
             o["why"] += f" It is {d:.0f} km from {area_name}."
 
+    coded = places[(places.state_id == inc["state_id"]) & (places.district_id == inc["district_id_2011"])][["lat", "lon"]].dropna().to_numpy()
+    far_off = {}  # a name found only more than FAR_DISTRICT_KM outside the coded district: (its best option, km)
+
+    def from_district(o):
+        """A village option's km from the coded district's nearest SHRUG place (0 for a town, as for context())."""
+        if o["relation"] not in ("in", "near") or o["lat"] is None or not len(coded) \
+                or re.match(r"(SHRUG|OpenStreetMap) (town|city)\b", o["evidence"]):
+            return 0.0
+        return float(111.32 * np.hypot(coded[:, 0] - o["lat"], (coded[:, 1] - o["lon"]) * math.cos(math.radians(o["lat"]))).min())
+
     def best_for(name):
         """A name's best option: a SHRUG place chosen by name, a point only for a forest (rules 4, 5), inside the
-        text's police station or block area if any is."""
+        text's police station or block area if any is, and not far outside the coded district."""
         mine = [o for o in options if o["query"] == name and (o["relation"] == "subdistrict") == (w["relation"] == "subdistrict")]
+        close = [o for o in mine if from_district(o) <= FAR_DISTRICT_KM]
+        if mine and not close:
+            far_off[name] = (mine[0], from_district(mine[0]))
+        mine = close
+        # a closest spelling gives way to a close match of the whole name in either gazetteer ("Chambannur":
+        # OpenStreetMap's Champannur over SHRUG's Amballur)
+        if any(o.get("match") == "name" and o.get("spelling", 0) >= SURE for o in mine):
+            mine = [o for o in mine if o.get("match") != "loose"]
         if w["relation"] != "in a forest or area" and any(o["source"] == "SHRUG" for o in mine):
             mine = [o for o in mine if o["source"] == "SHRUG"]
         inside = [o for o in mine if not away(o)]
@@ -905,11 +948,20 @@ def resolve(inc, mentions, w, places, osm, areas):
 
     best = {n: o for n in names if (o := best_for(n))}
     note = ""
+    if not best and w["place"] in far_off and by_station and limits:  # found only far away, under a named station
+        o, d = far_off[w["place"]]
+        best = {w["place"]: limits[0]}
+        note = (f" {w['place']} was found only {d:.0f} km from the coded district ({o['label']}), so probably not the place;"
+                f" the station's limits (rule 2).")
     if not best:  # a landmark no gazetteer lists ("Koyataad Railway Crossing of Dumri Vihar"): a place its quote names
         named = [m["name"] for m in mentions if m["name"] not in names
                  and re.search(rf"\b{re.escape(m['name'])}\b", w["quote"], flags=re.I)]
         found = [o for o in map(best_for, named) if o]
         if not found:
+            if w["place"] in far_off:
+                o, d = far_off[w["place"]]
+                return options, mentions, 0, (f"The model says: {said_where}. {w['place']} was found only {d:.0f} km from "
+                                              f"the coded district ({o['label']}), so probably not the place.")
             return options, mentions, 0, f"{w['place']} was not found: {said_where}."
         fallback = max(found, key=lambda o: o["score"])
         best = {w["place"]: fallback}
@@ -945,8 +997,19 @@ def resolve(inc, mentions, w, places, osm, areas):
     # place is the village, the station is the map point (rule 2); it follows the pick in the list
     stop = next((o for o in options if o["query"] == pick.get("query") and o["source"] == "OpenStreetMap"
                  and o.get("match") == "name" and re.match(r"OpenStreetMap (railway|police) station", o["evidence"])), None)
+    # the pick is a railway or police station itself ("Titilagarh Railway Station"): the place is the SHRUG village or
+    # town it sits in or is named after, the station is the map point (rule 2)
+    named_after = None
+    if pick["source"] == "OpenStreetMap" and re.match(r"OpenStreetMap (railway|police) station", pick["evidence"]):
+        words = set(norm(pick["name"]).split())
+        named_after = next((o for o in options if o["source"] == "SHRUG" and o["relation"] in ("in", "near") and o.get("lat")
+                            and ((pick["shrid2"] and o["shrid2"] == pick["shrid2"])
+                                 or (norm(o["name"]) in words and km(o["lat"], o["lon"], pick["lat"], pick["lon"]) <= CLOSE_KM))),
+                           None)
+        if named_after:
+            pick, stop = named_after, pick
     head = [pick]
-    if stop and pick["source"] == "SHRUG" and pick.get("match") != "name":
+    if stop and pick["source"] == "SHRUG" and (named_after or pick.get("match") != "name"):
         head = [{**pick, "point_lat": stop["lat"], "point_lon": stop["lon"], "point_name": stop["name"]}, stop]
         note += f" Map point: {stop['name']} (rule 2)."
     rest = [o for o in options if o is not pick and o is not stop]

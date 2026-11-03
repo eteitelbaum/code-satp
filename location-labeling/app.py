@@ -98,6 +98,11 @@ def load_places():
     where = ("in " + places["subdistrict_name"].str.title() + " subdistrict").fillna(
         "in " + places["district_name"].str.title() + " district")
     places["label"] = places["name"] + also + " (" + places["place_type"] + ") · " + where
+    # several places with one name in a subdistrict (two Jharas in Narayanpur): their SHRUG IDs tell them apart
+    same = places.groupby(["state_id", "district_id", places["subdistrict_id"].fillna(""), "key"])["shrid2"].transform("size")
+    twin = (same > 1) & (places["key"] != "")
+    places.loc[twin, "label"] += (" · SHRUG ID " + places.loc[twin, "shrid2"].str.split("-").str[-1]
+                                  + ", one of " + same[twin].astype(str) + " with this name there")
     return places
 
 
@@ -929,7 +934,15 @@ with left:
         else:
             row = here.iloc[0]
             note = "" if row["district_id"] == inc["district_id_2011"] else f" (in {row['district_name'].title()} district, not the coded one)"
-            st.success(f"Map point is {how}: {row['label']}{note}")
+            selected = st.session_state[key("choice")]
+            if (in_place and selected and not selected.startswith("town:") and in_place != selected
+                    and precision_now in (*AT_PLACE, PS_LIMITS)):
+                away = place_km(inc["state_id"], [selected], lat, lon)
+                chosen_label = all_places.loc[all_places.shrid2 == selected, "label"].iloc[0]
+                st.warning(f"Map point is {how}: {row['label']}{note}. That is not the selected place ({chosen_label})"
+                           + (f", {away:.1f} km from it." if away is not None else "."))
+            else:
+                st.success(f"Map point is {how}: {row['label']}{note}")
     # the model's own answer, closed until opened, so it can be checked after deciding (like the pin, rule 8)
     if answer := load_where(file_version(WHERE_FILE)).get(iid):
         with st.expander("Model's answer (step 2)"):
@@ -1083,7 +1096,7 @@ with right:
     point_shrid, point_sub = point_units(inc["state_id"], *point) if point else ("", "")
     point_name = all_places.loc[all_places.shrid2 == point_shrid, "name"].iloc[0] if point_shrid else ""
     point_km = ""
-    if point and point_source != "SHRUG place" and precision in AT_PLACE and len(chosen):
+    if point and point_source != "SHRUG place" and precision in (*AT_PLACE, PS_LIMITS) and len(chosen):
         km = place_km(inc["state_id"], chosen["shrid2"], *point)
         if km is not None:
             point_km = f"{km:.2f}"
